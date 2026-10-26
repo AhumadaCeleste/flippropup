@@ -81,14 +81,22 @@ def armar_html(grupos, sitio, fecha_txt):
 
 
 def enviar(destinatarios, asunto, html):
-    usuario = os.environ["GMAIL_USUARIO"]
-    clave = os.environ["GMAIL_CLAVE_APP"]
+    usuario = os.environ["GMAIL_USUARIO"].strip()
+    # Google muestra la contraseña de aplicación en grupos con espacios: se quitan.
+    clave = "".join(os.environ["GMAIL_CLAVE_APP"].split())
     msg = MIMEMultipart("alternative")
     msg["Subject"] = asunto
     msg["From"] = f"Flip PropUp <{usuario}>"
     msg["To"] = ", ".join(destinatarios)
     msg.attach(MIMEText("Abrí este email en formato HTML para ver las novedades.", "plain", "utf-8"))
     msg.attach(MIMEText(html, "html", "utf-8"))
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-        s.login(usuario, clave)
-        s.sendmail(usuario, destinatarios, msg.as_string())
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60) as s:
+            s.login(usuario, clave)
+            s.sendmail(usuario, destinatarios, msg.as_string())
+    except (smtplib.SMTPAuthenticationError, smtplib.SMTPServerDisconnected) as e:
+        raise RuntimeError(
+            f"Gmail rechazó el inicio de sesión de {usuario}. Revisá los secrets GMAIL_USUARIO "
+            "y GMAIL_CLAVE_APP: la clave tiene que ser una contraseña de aplicación de 16 letras "
+            "de esa misma cuenta (requiere verificación en 2 pasos activada)."
+        ) from e
