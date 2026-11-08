@@ -7,7 +7,8 @@
 
 Variables de entorno (se cargan como Secrets en GitHub):
   SUPABASE_URL, SUPABASE_SERVICE_KEY, GMAIL_USUARIO, GMAIL_CLAVE_APP, SITIO_URL
-Opcionales: BUSQUEDA_ID (correr solo una), SIN_EMAIL=1, MAX_PAGINAS (por defecto 10)
+Opcionales: BUSQUEDA_ID (correr solo una), SIN_EMAIL=1, MAX_PAGINAS (por defecto 10),
+  PRUEBA_EMAIL=1 (solo manda un email de prueba, sin buscar), BREVO_API_KEY y BREVO_REMITENTE
 """
 import os
 import sys
@@ -191,6 +192,14 @@ class Robot:
             self.sb.table("alertas").update({"enviada": True}).in_("id", ids[i:i + 200]).execute()
         print(f"Email enviado a {', '.join(destinatarios)} con {total} novedades.")
 
+    def prueba_email(self):
+        destinatarios = [u["email"] for u in self.sb.table("usuarios_habilitados").select("email").execute().data]
+        hoy = datetime.now(ART)
+        html = emailer.armar_html({}, os.environ.get("SITIO_URL", "").rstrip("/"),
+                                  f"Email de prueba · {hoy:%d/%m/%Y %H:%M}. Si lo ves, el envío funciona.")
+        emailer.enviar(destinatarios, f"Flip PropUp · prueba de email · {hoy:%d/%m %H:%M}", html)
+        print(f"Prueba enviada a {', '.join(destinatarios)}.")
+
     def correr(self):
         ej = self.sb.table("ejecuciones").insert({"estado": "corriendo"}).execute().data[0]["id"]
         try:
@@ -221,7 +230,10 @@ class Robot:
 
 if __name__ == "__main__":
     try:
-        Robot().correr()
+        if os.environ.get("PRUEBA_EMAIL") == "1":
+            Robot().prueba_email()
+        else:
+            Robot().correr()
     except Exception:
         traceback.print_exc()
         sys.exit(1)

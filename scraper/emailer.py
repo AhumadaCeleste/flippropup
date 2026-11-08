@@ -1,6 +1,10 @@
 """Arma y envía el resumen diario por Gmail."""
+import json
 import os
 import smtplib
+import ssl
+import urllib.error
+import urllib.request
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from html import escape
@@ -11,6 +15,7 @@ TEXTO = "#F1F5F9"
 MUTED = "#A9B6C8"
 ACENTO = "#00F5A0"
 PELIGRO = "#FDA4AF"
+TEXTO_PLANO = "Abrí este email en formato HTML para ver las novedades."
 
 
 def precio_txt(precio, moneda):
@@ -80,23 +85,76 @@ def armar_html(grupos, sitio, fecha_txt):
 </td></tr></table></td></tr></table></body></html>"""
 
 
-def enviar(destinatarios, asunto, html):
-    usuario = os.environ["GMAIL_USUARIO"].strip()
-    # Google muestra la contraseña de aplicación en grupos con espacios: se quitan.
-    clave = "".join(os.environ["GMAIL_CLAVE_APP"].split())
+def _armar_mensaje(usuario, destinatarios, asunto, html):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = asunto
     msg["From"] = f"Flip PropUp <{usuario}>"
     msg["To"] = ", ".join(destinatarios)
-    msg.attach(MIMEText("Abrí este email en formato HTML para ver las novedades.", "plain", "utf-8"))
+    msg.attach(MIMEText(TEXTO_PLANO, "plain", "utf-8"))
     msg.attach(MIMEText(html, "html", "utf-8"))
+    return msg
+
+
+def _enviar_gmail(destinatarios, asunto, html):
+    """Prueba el puerto 465 (SSL) y, si Gmail corta la conexión, el 587 (STARTTLS)."""
+    usuario = os.environ["GMAIL_USUARIO"].strip()
+    # Google muestra la contraseña de aplicación en grupos con espacios: se quitan.
+    clave = "".join(os.environ["GMAIL_CLAVE_APP"].split())
+    if len(clave) != 16 or not clave.isascii():
+        print(f"Aviso: GMAIL_CLAVE_APP tiene {len(clave)} caracteres; una contraseña de aplicación tiene 16 letras.")
+    msg = _armar_mensaje(usuario, destinatarios, asunto, html).as_string()
+    errores = []
+    for puerto in (465, 587):
+        try:
+            if puerto == 465:
+                s = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60)
+            else:
+                s = smtplib.SMTP("smtp.gmail.com", 587, timeout=60)
+                s.ehlo()
+                s.starttls(context=ssl.create_default_context())
+                s.ehlo()
+            with s:
+                s.login(usuario, clave)
+                s.sendmail(usuario, destinatarios, msg)
+            print(f"Email enviado por Gmail (puerto {puerto}).")
+            return
+        except (smtplib.SMTPException, OSError) as e:
+            errores.append(f"puerto {puerto}: {type(e).__name__}: {e}")
+    raise RuntimeError(
+        f"Gmail rechazó el inicio de sesión de {usuario} ({'; '.join(errores)}). "
+        "Revisá GMAIL_USUARIO y GMAIL_CLAVE_APP (contraseña de aplicación de 16 letras de esa misma "
+        "cuenta, con verificación en 2 pasos), o cargá BREVO_API_KEY para enviar por Brevo."
+    )
+
+
+def _enviar_brevo(destinatarios, asunto, html):
+    """Envío por la API HTTP de Brevo (no usa SMTP, así que no la afecta el bloqueo de Gmail)."""
+    remitente = (os.environ.get("BREVO_REMITENTE") or os.environ.get("GMAIL_USUARIO", "")).strip()
+    cuerpo = json.dumps({
+        "sender": {"name": "Flip PropUp", "email": remitente},
+        "to": [{"email": d} for d in destinatarios],
+        "subject": asunto,
+        "htmlContent": html,
+        "textContent": TEXTO_PLANO,
+    }).encode("utf-8")
+    pedido = urllib.request.Request(
+        "https://api.brevo.com/v3/smtp/email", data=cuerpo, method="POST",
+        headers={"api-key": os.environ["BREVO_API_KEY"].strip(), "content-type": "application/json",
+                 "accept": "application/json"})
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60) as s:
-            s.login(usuario, clave)
-            s.sendmail(usuario, destinatarios, msg.as_string())
-    except (smtplib.SMTPAuthenticationError, smtplib.SMTPServerDisconnected) as e:
-        raise RuntimeError(
-            f"Gmail rechazó el inicio de sesión de {usuario}. Revisá los secrets GMAIL_USUARIO "
-            "y GMAIL_CLAVE_APP: la clave tiene que ser una contraseña de aplicación de 16 letras "
-            "de esa misma cuenta (requiere verificación en 2 pasos activada)."
-        ) from e
+        with urllib.request.urlopen(pedido, timeout=60) as r:
+            print(f"Email enviado por Brevo ({r.status}).")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Brevo rechazó el envío ({e.code}): {e.read().decode('utf-8', 'replace')[:500]}") from e
+
+
+def enviar(destinatarios, asunto, html):
+    """Usa Brevo si está configurado; si no, Gmail. Si Brevo falla, intenta con Gmail."""
+    if os.environ.get("BREVO_API_KEY", "").strip():
+        try:
+            return _enviar_brevo(destinatarios, asunto, html)
+        except Exception as e:
+            if not os.environ.get("GMAIL_CLAVE_APP", "").strip():
+                raise
+            print(f"Brevo falló ({e}); pruebo con Gmail.")
+    return _enviar_gmail(destinatarios, asunto, html)

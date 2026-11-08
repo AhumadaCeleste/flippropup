@@ -13,6 +13,10 @@ on:
         description: "1 = no mandar email"
         required: false
         default: "0"
+      prueba_email:
+        description: "1 = solo mandar un email de prueba (no busca)"
+        required: false
+        default: "0"
 
 concurrency:
   group: robot
@@ -34,6 +38,7 @@ jobs:
           cache-dependency-path: scraper/requirements.txt
       - run: pip install -r requirements.txt
       - run: python -m playwright install --with-deps chromium
+        if: inputs.prueba_email != '1'
       - name: Buscar, guardar y avisar
         run: python run.py
         env:
@@ -44,3 +49,6 @@ jobs:
           SITIO_URL: ${{ secrets.SITIO_URL }}
           BUSQUEDA_ID: ${{ inputs.busqueda_id }}
           SIN_EMAIL: ${{ inputs.sin_email }}
+          PRUEBA_EMAIL: ${{ inputs.prueba_email }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_REMITENTE: ${{ secrets.BREVO_REMITENTE }}
