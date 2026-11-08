@@ -20,12 +20,14 @@ with sync_playwright() as pw:
     i = max(texto.find("USD"), texto.find("U$S"))
     print("== total texto:", len(texto), "· alrededor de USD:", texto[max(0, i - 600): i + 900] if i >= 0 else texto[-1200:])
     info = pg.evaluate(r"""() => {
-      const precio = [...document.querySelectorAll('body *')].find(e => e.children.length === 0 && /(USD|U\$S)\s?[\d.]{4,}/.test(e.textContent));
-      let card = precio; for (let i = 0; card && i < 7; i++) { if (card.querySelector && card.querySelector('a[href]') && card.querySelector('img')) break; card = card.parentElement; }
+      const precio = [...document.querySelectorAll('body *')].find(e => e.children.length === 0 && /^(USD|AR\$|U\$S)\s?[\d.,]+$/.test(e.textContent.trim()));
+      let card = precio; for (let i = 0; card && i < 7; i++) { if (card.querySelector && card.querySelector('img') && /VENTA/.test(card.innerText)) break; card = card.parentElement; }
       const enlaces = [...new Set([...document.querySelectorAll('a[href]')].map(a => a.href))].filter(h => /cordobaprop\.com\/(?!propiedades\/\?)/.test(h)).slice(0, 15);
-      const pag = [...document.querySelectorAll('a, button')].filter(x => /^(\d+|siguiente|›|»|ver más|cargar más)$/i.test(x.textContent.trim())).slice(0, 6).map(x => x.tagName + ' ' + x.textContent.trim() + ' ' + (x.href || x.getAttribute('onclick') || ''));
-      return {card: card ? card.outerHTML.replace(/\s+/g, ' ').replace(/<svg.*?<\/svg>/g, '<svg/>').slice(0, 2500) : null, enlaces, pag};
+      const total = card ? document.querySelectorAll(card.tagName + '.' + [...card.classList].map(c => CSS.escape(c)).join('.')).length : 0;
+      const pag = [...document.querySelectorAll('a, button, li, span')].filter(x => /^(\d+|siguiente|›|»|ver más|cargar más)$/i.test(x.textContent.trim())).slice(0, 6).map(x => x.tagName + ' ' + x.textContent.trim() + ' ' + (x.href || x.getAttribute('onclick') || ''));
+      return {total, card: card ? card.outerHTML.replace(/\s+/g, ' ').replace(/<svg.*?<\/svg>/g, '<svg/>').slice(0, 2500) : null, enlaces, pag};
     }""")
+    print("== total tarjetas:", info["total"])
     print("== enlaces:", info["enlaces"])
     print("== paginación:", info["pag"])
     print("== TARJETA:", info["card"])
