@@ -1,0 +1,20 @@
+name: Sondeo de portales
+on: workflow_dispatch
+jobs:
+  sondeo:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: scraper
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install playwright==1.47.0 && python -m playwright install --with-deps chromium
+      - run: python sondeo.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sondeo
+          path: scraper/sondeo/
