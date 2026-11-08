@@ -148,30 +148,31 @@ class MercadoLibre:
             print(f"    Mercado Libre dio error en {url}; pruebo {alternativa}")
             if alternativa and alternativa != url:
                 url = alternativa
-        pag_url = url
+        tarjetas = self._pagina(url)
         for n in range(max_paginas):
-            tarjetas = self._pagina(pag_url)
             nuevas = [t for t in tarjetas if _id(t["href"]) and _id(t["href"]) not in vistos]
             for t in nuevas:
                 vistos.add(_id(t["href"]))
             avisos += nuevas
-            siguiente = self.page.evaluate("""() => {
-              const a = document.querySelector('li.andes-pagination__button--next a, a[title="Siguiente"], a.andes-pagination__link[aria-label*="Siguiente"]');
-              return a ? a.href : null; }""")
-            print(f"    ML pág {n + 1}: {len(tarjetas)} tarjetas, {len(nuevas)} nuevas, siguiente={siguiente}")
-            if n == 0:
-                print("    ML paginación:", self.page.evaluate("""() => [...document.querySelectorAll('a')].filter(a => /Desde|Siguiente|pagina/i.test(a.href + ' ' + a.textContent + ' ' + (a.title||'') + ' ' + (a.getAttribute('aria-label')||'')))
-                   .slice(0, 8).map(a => (a.className + ' | ' + a.textContent.trim().slice(0,20) + ' | ' + (a.getAttribute('aria-label')||'') + ' | ' + a.href)).join(' || ')"""))
-            if not siguiente and len(tarjetas) >= POR_PAGINA:
-                pie = self.page.evaluate("""() => { const n = document.querySelector('nav[aria-label*="aginaci"], .andes-pagination, .ui-search-pagination');
-                  return n ? n.outerHTML.replace(/\\s+/g, ' ').slice(0, 1500) : 'sin bloque de paginación'; }""")
-                print("    Mercado Libre: no encontré 'Siguiente'. Paginación:", pie)
-            if not nuevas or not siguiente or siguiente == pag_url:
-                if n:
-                    print(f"    Mercado Libre: fin en la página {n + 1} ({'sin avisos nuevos' if not nuevas else 'sin página siguiente'})")
+            print(f"    ML pág {n + 1}: {len(tarjetas)} tarjetas, {len(nuevas)} nuevas")
+            if not nuevas or len(tarjetas) < POR_PAGINA or n + 1 >= max_paginas:
                 break
-            pag_url = siguiente
+            # El botón "Siguiente" cambia de página por script (su enlace apunta a la misma URL).
+            boton = self.page.locator("li.andes-pagination__button--next a, a.andes-pagination__link:has-text('Siguiente')").first
+            if not boton.count():
+                break
+            primera = tarjetas[0]["href"]
             time.sleep(PAUSA_ENTRE_PAGINAS)
+            boton.click()
+            try:
+                self.page.wait_for_function(
+                    "(h) => { const a = document.querySelector('a.poly-component__title, h3 a'); return a && a.href !== h; }",
+                    arg=primera, timeout=20000)
+            except Exception:
+                print("    ML: la página siguiente no cargó")
+                break
+            self.page.wait_for_timeout(1500)
+            tarjetas = self.page.evaluate(LEER_TARJETAS)
         return avisos
 
     def estado_aviso(self, url):
