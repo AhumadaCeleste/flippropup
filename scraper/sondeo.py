@@ -5,8 +5,14 @@ from playwright.sync_api import sync_playwright
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
 URLS = {
-    "ml": "https://inmuebles.mercadolibre.com.ar/departamentos/venta/1-dormitorio/cordoba/",
     "zonaprop": "https://www.zonaprop.com.ar/departamentos-venta-cordoba-1-habitacion.html",
+    "argenprop": "https://www.argenprop.com/departamentos/venta/cordoba/1-dormitorio",
+    "properati": "https://www.properati.com.ar/s/cordoba/departamento/venta",
+    "remax": "https://www.remax.com.ar/listings/buy?page=0&pageSize=24&locations=in::Córdoba",
+    "clarin": "https://inmuebles.clarin.com/departamentos-venta-cordoba",
+    "cabaprop": "https://www.cabaprop.com.ar/",
+    "inmoup": "https://www.inmoup.com.ar/inmuebles-en-venta-en-cordoba",
+    "lavozdelinterior_casas": "https://clasificados.lavoz.com.ar/inmuebles/casas",
 }
 os.makedirs("sondeo", exist_ok=True)
 with sync_playwright() as pw:
@@ -18,7 +24,7 @@ with sync_playwright() as pw:
         pg = ctx.new_page()
         try:
             r = pg.goto(url, wait_until="domcontentloaded", timeout=60000)
-            pg.wait_for_timeout(30000 if nombre == "zonaprop" else 8000)
+            pg.wait_for_timeout(15000 if nombre == "zonaprop" else 6000)
             html = pg.content()
             open(f"sondeo/{nombre}.html", "w").write(html)
             texto = " ".join(pg.evaluate("() => document.body ? document.body.innerText : ''").split())
@@ -33,7 +39,7 @@ with sync_playwright() as pw:
               return {top, card: card ? card.outerHTML.replace(/\s+/g,' ').replace(/<svg.*?<\/svg>/g,'<svg/>').slice(0, 4000) : null};
             }""")
             print("   CLASES:", info["top"])
-            print("   TARJETA:", info["card"])
+            print("   TARJETA:", (info["card"] or "")[:300])
         except Exception as e:
             print(f"== {nombre}: ERROR {e}")
         pg.close()
