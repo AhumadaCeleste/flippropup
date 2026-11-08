@@ -4,31 +4,23 @@ from playwright.sync_api import sync_playwright
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-
+LEER = """() => { const out = [];
+  document.querySelectorAll('script[type="application/ld+json"]').forEach(s => { try {
+    const d = JSON.parse(s.textContent); const g = d['@graph'] || [d];
+    g.forEach(n => { const l = n.mainEntity && n.mainEntity.mainEntity; if (l && l.itemListElement) l.itemListElement.forEach(i => out.push(i.item.url)); });
+  } catch (e) {} }); return out; }"""
+BASE = "https://inmoup.com.ar/inmuebles-en-venta-en-cordoba-de-cordoba"
 with sync_playwright() as pw:
     nav = pw.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
-    ctx = nav.new_context(locale="es-AR", user_agent=UA, viewport={"width": 1366, "height": 900},
-                          extra_http_headers={"Accept-Language": "es-AR,es;q=0.9"})
-    ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
-    # InmoUP: estructura de las tarjetas
+    ctx = nav.new_context(locale="es-AR", user_agent=UA)
     pg = ctx.new_page()
-    pg.goto("https://inmoup.com.ar/inmuebles-en-venta-en-cordoba-de-cordoba", wait_until="domcontentloaded", timeout=60000)
-    pg.wait_for_timeout(6000)
-    info = pg.evaluate(r"""() => {
-      const precios = [...document.querySelectorAll('body *')].filter(e => e.children.length === 0 && /U\$S|USD|\$\s?\d/.test(e.textContent)).slice(0, 3);
-      let card = precios[0];
-      for (let i = 0; card && i < 8; i++) { if (card.querySelector && card.querySelector('a[href]') && card.querySelector('img')) break; card = card.parentElement; }
-      const ld = [...document.querySelectorAll('script[type="application/ld+json"]')].map(s => s.textContent.slice(0, 500));
-      const links = [...new Set([...document.querySelectorAll('a[href]')].map(a => a.href).filter(h => /propiedad|inmueble|ficha|\d{4,}/.test(h)))].slice(0, 6);
-      const pag = [...document.querySelectorAll('a[href]')].filter(a => /pagina|page|siguiente/i.test(a.href + a.textContent)).slice(0, 4).map(a => a.textContent.trim().slice(0,15) + ' ' + a.href);
-      return {card: card ? card.outerHTML.replace(/\s+/g, ' ').replace(/<svg.*?<\/svg>/g, '<svg/>').slice(0, 3500) : null,
-              cardClass: card ? card.className : null, ld, links, pag,
-              total: (() => { try { return document.querySelectorAll('.' + [...card.classList].map(c => CSS.escape(c)).join('.')).length } catch (e) { return String(e) } })()};
-    }""")
-    print("== inmoup clase tarjeta:", info["cardClass"], "· cantidad:", info["total"])
-    print("== inmoup links:", info["links"])
-    print("== inmoup paginación:", info["pag"])
-    print("== inmoup ld+json:", info["ld"][:2])
-    print("== inmoup TARJETA:", info["card"])
+    for url in [BASE, BASE + "?page=2", BASE + "?pagina=2", BASE + "/pagina-2", BASE + "?p=2", BASE + "?pag=2",
+                "https://inmoup.com.ar/departamentos-en-venta-en-cordoba-de-cordoba"]:
+        r = pg.goto(url, wait_until="domcontentloaded", timeout=60000)
+        pg.wait_for_timeout(2500)
+        urls = pg.evaluate(LEER)
+        print(f"== {url} · {r.status} · {pg.title()!r} · {len(urls)} avisos · primero {urls[0] if urls else None}")
+    pg.goto(BASE, wait_until="domcontentloaded"); pg.wait_for_timeout(3000)
+    print("== botones:", pg.evaluate("""() => [...document.querySelectorAll('a, button')].filter(e => /^(\\d+|siguiente|›|»|>|ver más|cargar más)$/i.test(e.textContent.trim()))
+        .slice(0, 12).map(e => e.tagName + ' ' + e.textContent.trim() + ' ' + (e.href || e.getAttribute('wire:click') || e.getAttribute('onclick') || e.outerHTML.slice(0,160))).join(' || ')"""))
     nav.close()
