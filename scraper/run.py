@@ -264,7 +264,7 @@ class Robot:
                 q = q.eq("id", os.environ["BUSQUEDA_ID"])
             busquedas = q.execute().data
             with sync_playwright() as pw:
-                navegador = pw.chromium.launch(headless=True)
+                navegador = pw.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
                 contexto = navegador.new_context(locale="es-AR", viewport={"width": 1366, "height": 900})
                 portales = {}
                 try:
@@ -277,7 +277,7 @@ class Robot:
                     traceback.print_exc()
                 if any("mercadolibre" in portales_de(b["filtros"] or {}, b) for b in busquedas):
                     try:
-                        mlp = ml.MercadoLibre(contexto.new_page())
+                        mlp = ml.MercadoLibre(ml.nuevo_contexto(navegador).new_page())
                         mlp.abrir()
                         portales["mercadolibre"] = mlp
                     except Exception as e:

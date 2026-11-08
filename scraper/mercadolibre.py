@@ -96,6 +96,19 @@ def construir_consultas(f, nombres):
     return consultas
 
 
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+
+
+def nuevo_contexto(navegador):
+    """Mercado Libre muestra un error si detecta un navegador automatizado sin identificar:
+    se usa un contexto propio con la identificación de un Chrome común."""
+    ctx = navegador.new_context(locale="es-AR", user_agent=UA, viewport={"width": 1366, "height": 900},
+                                extra_http_headers={"Accept-Language": "es-AR,es;q=0.9"})
+    ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    return ctx
+
+
 class MercadoLibre:
     def __init__(self, page):
         self.page = page
