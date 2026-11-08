@@ -122,8 +122,19 @@ class MercadoLibre:
             print("    Clases encontradas:", clases)
         return tarjetas
 
+    def _es_error(self):
+        return "Hubo un error accediendo" in (self.page.evaluate("() => document.body ? document.body.innerText.slice(0, 300) : ''") or "")
+
     def buscar(self, url, max_paginas=10):
         avisos, vistos = [], set()
+        self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        if self._es_error():
+            # Si la ruta de ciudad no existe, se busca a nivel provincia (la ciudad se controla después).
+            m = re.match(r"(.*/venta/(?:[^/]+-dormitorios?/|sin-dormitorios/)?[^/]+/)[^/]+/(.*)", url)
+            alternativa = (m.group(1) + m.group(2)) if m else None
+            print(f"    Mercado Libre dio error en {url}; pruebo {alternativa}")
+            if alternativa and alternativa != url:
+                url = alternativa
         for n in range(max_paginas):
             pag_url = url if n == 0 else f"{url}_Desde_{n * POR_PAGINA + 1}"
             tarjetas = self._pagina(pag_url)
