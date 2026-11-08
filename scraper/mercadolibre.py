@@ -148,15 +148,19 @@ class MercadoLibre:
             print(f"    Mercado Libre dio error en {url}; pruebo {alternativa}")
             if alternativa and alternativa != url:
                 url = alternativa
+        pag_url = url
         for n in range(max_paginas):
-            pag_url = url if n == 0 else f"{url}_Desde_{n * POR_PAGINA + 1}"
             tarjetas = self._pagina(pag_url)
             nuevas = [t for t in tarjetas if _id(t["href"]) and _id(t["href"]) not in vistos]
             for t in nuevas:
                 vistos.add(_id(t["href"]))
             avisos += nuevas
-            if len(tarjetas) < POR_PAGINA or not nuevas:
+            siguiente = self.page.evaluate("""() => {
+              const a = document.querySelector('li.andes-pagination__button--next a, a[title="Siguiente"], a.andes-pagination__link[aria-label*="Siguiente"]');
+              return a ? a.href : null; }""")
+            if not nuevas or not siguiente or siguiente == pag_url:
                 break
+            pag_url = siguiente
             time.sleep(PAUSA_ENTRE_PAGINAS)
         return avisos
 
