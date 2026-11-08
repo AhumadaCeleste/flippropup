@@ -1,35 +1,30 @@
-"""Sondeo: estructura del listado de CórdobaProp."""
+"""Sondeo: vistas y paginación de CórdobaProp."""
 from playwright.sync_api import sync_playwright
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+B = "https://www.cordobaprop.com/propiedades/?operaciones=1&tipos=2"
 with sync_playwright() as pw:
-    nav = pw.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+    nav = pw.chromium.launch(headless=True)
     ctx = nav.new_context(locale="es-AR", user_agent=UA, viewport={"width": 1366, "height": 900})
     pg = ctx.new_page()
-    pedidos = []
-    pg.on("request", lambda r: pedidos.append(f"{r.method} {r.url[:220]} {(r.post_data or '')[:200]}") if r.resource_type in ("xhr", "fetch") else None)
-    pg.goto("https://www.cordobaprop.com/", wait_until="domcontentloaded", timeout=60000)
-    pg.wait_for_timeout(4000)
-    print("== selects:", pg.evaluate("""() => [...document.querySelectorAll('select')].map(s => (s.name || s.id) + ': ' + [...s.options].slice(0, 30).map(o => o.value + '=' + o.textContent.trim()).join(', ')).join(' || ')"""))
-    pg.goto("https://www.cordobaprop.com/propiedades/?operaciones=1&tipos=2", wait_until="domcontentloaded", timeout=60000)
-    pg.wait_for_timeout(6000)
-    print("== título:", pg.title(), "·", pg.url)
-    pg.mouse.wheel(0, 3000); pg.wait_for_timeout(3000)
-    texto = " ".join(pg.evaluate("() => document.body.innerText").split())
-    i = max(texto.find("USD"), texto.find("U$S"))
-    print("== total texto:", len(texto), "· alrededor de USD:", texto[max(0, i - 600): i + 900] if i >= 0 else texto[-1200:])
-    info = pg.evaluate(r"""() => {
-      const precio = [...document.querySelectorAll('body *')].find(e => e.children.length === 0 && /^(USD|AR\$|U\$S)\s?[\d.,]+$/.test(e.textContent.trim()));
-      let card = precio; for (let i = 0; card && i < 7; i++) { if (card.querySelector && card.querySelector('img') && /VENTA/.test(card.innerText)) break; card = card.parentElement; }
-      const enlaces = [...new Set([...document.querySelectorAll('a[href]')].map(a => a.href))].filter(h => /cordobaprop\.com\/(?!propiedades\/\?)/.test(h)).slice(0, 15);
-      const total = card ? document.querySelectorAll(card.tagName + '.' + [...card.classList].map(c => CSS.escape(c)).join('.')).length : 0;
-      const pag = [...document.querySelectorAll('a, button, li, span')].filter(x => /^(\d+|siguiente|›|»|ver más|cargar más)$/i.test(x.textContent.trim())).slice(0, 6).map(x => x.tagName + ' ' + x.textContent.trim() + ' ' + (x.href || x.getAttribute('onclick') || ''));
-      return {total, card: card ? card.outerHTML.replace(/\s+/g, ' ').replace(/<svg.*?<\/svg>/g, '<svg/>').slice(0, 2500) : null, enlaces, pag};
-    }""")
-    print("== total tarjetas:", info["total"])
-    print("== enlaces:", info["enlaces"])
-    print("== paginación:", info["pag"])
-    print("== TARJETA:", info["card"])
-    print("== pedidos:", " || ".join(p for p in pedidos if "cordobaprop" in p and "rum" not in p and "google" not in p)[:1500])
+    for url in [B, B + "&viewtype=list", B + "&viewtype=grid", B + "&page=2", B + "&pagina=2", B + "&p=2", B + "&dormitorios=1"]:
+        r = pg.goto(url, wait_until="domcontentloaded", timeout=60000)
+        pg.wait_for_timeout(3500)
+        i = pg.evaluate(r"""() => {
+          const urls = [...document.querySelectorAll('[data-url]')].map(e => e.getAttribute('data-url'));
+          const otras = [...new Set([...document.querySelectorAll('[class]')].map(e => e.className).filter(c => typeof c === 'string' && /card|property|propiedad|item|result/i.test(c)))].slice(0, 12);
+          const cuenta = (document.body.innerText.match(/(\d[\d.]*)\s+(propiedades|resultados)/i) || [])[0];
+          const pag = [...document.querySelectorAll('a[href], button')].filter(x => /page|pagina|siguiente|›|»|cargar|ver m/i.test((x.href || '') + ' ' + x.textContent)).slice(0, 5).map(x => x.textContent.trim().slice(0, 15) + ' ' + (x.href || ''));
+          const primera = document.querySelector('a[href*="/propiedad/"]');
+          return {n: urls.length, primero: urls[0], cuenta, otras, pag, link: primera ? primera.outerHTML.replace(/\s+/g, ' ').slice(0, 1200) : null};
+        }""")
+        print(f"== {url[50:]} · {r.status} · tarjetas {i['n']} · primero {i['primero']} · {i['cuenta']}")
+        print("   pag:", i["pag"], "· clases:", i["otras"])
+        if i["link"]:
+            print("   LINK:", i["link"])
+    pg.goto("https://www.cordobaprop.com/propiedad/3138-allende-suite-depto-a-estrenar-frente-a-los-aroza-villa-allende", wait_until="domcontentloaded")
+    pg.wait_for_timeout(3000)
+    t = " ".join(pg.evaluate("() => document.body.innerText").split())
+    print("== FICHA:", t[:1500])
     nav.close()
