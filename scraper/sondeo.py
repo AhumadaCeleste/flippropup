@@ -15,16 +15,19 @@ with sync_playwright() as pw:
     pg.goto("https://www.cordobaprop.com/propiedades/?operaciones=1&tipos=2", wait_until="domcontentloaded", timeout=60000)
     pg.wait_for_timeout(6000)
     print("== título:", pg.title(), "·", pg.url)
+    pg.mouse.wheel(0, 3000); pg.wait_for_timeout(3000)
     texto = " ".join(pg.evaluate("() => document.body.innerText").split())
-    print("== texto:", texto[:700])
+    i = max(texto.find("USD"), texto.find("U$S"))
+    print("== total texto:", len(texto), "· alrededor de USD:", texto[max(0, i - 600): i + 900] if i >= 0 else texto[-1200:])
     info = pg.evaluate(r"""() => {
-      const a = [...document.querySelectorAll('a[href*="/propiedad/"]')];
-      let card = a[0]; for (let i = 0; card && i < 6; i++) { if (card.querySelector && card.querySelectorAll('img').length && /\d/.test(card.innerText)) break; card = card.parentElement; }
-      const pag = [...document.querySelectorAll('a[href]')].filter(x => /page|pagina|pag=/i.test(x.href)).slice(0, 5).map(x => x.textContent.trim() + ' ' + x.href);
-      return {n: new Set(a.map(x => x.href)).size, card: card ? card.outerHTML.replace(/\s+/g, ' ').replace(/<svg.*?<\/svg>/g, '<svg/>').slice(0, 2500) : null, pag};
+      const precio = [...document.querySelectorAll('body *')].find(e => e.children.length === 0 && /(USD|U\$S)\s?[\d.]{4,}/.test(e.textContent));
+      let card = precio; for (let i = 0; card && i < 7; i++) { if (card.querySelector && card.querySelector('a[href]') && card.querySelector('img')) break; card = card.parentElement; }
+      const enlaces = [...new Set([...document.querySelectorAll('a[href]')].map(a => a.href))].filter(h => /cordobaprop\.com\/(?!propiedades\/\?)/.test(h)).slice(0, 15);
+      const pag = [...document.querySelectorAll('a, button')].filter(x => /^(\d+|siguiente|›|»|ver más|cargar más)$/i.test(x.textContent.trim())).slice(0, 6).map(x => x.tagName + ' ' + x.textContent.trim() + ' ' + (x.href || x.getAttribute('onclick') || ''));
+      return {card: card ? card.outerHTML.replace(/\s+/g, ' ').replace(/<svg.*?<\/svg>/g, '<svg/>').slice(0, 2500) : null, enlaces, pag};
     }""")
-    print("== avisos en pantalla:", info["n"])
+    print("== enlaces:", info["enlaces"])
     print("== paginación:", info["pag"])
     print("== TARJETA:", info["card"])
-    print("== pedidos:", " || ".join(p for p in pedidos if "cordobaprop" in p and "rum" not in p)[:1500])
+    print("== pedidos:", " || ".join(p for p in pedidos if "cordobaprop" in p and "rum" not in p and "google" not in p)[:1500])
     nav.close()
