@@ -158,6 +158,7 @@ class MercadoLibre:
             siguiente = self.page.evaluate("""() => {
               const a = document.querySelector('li.andes-pagination__button--next a, a[title="Siguiente"], a.andes-pagination__link[aria-label*="Siguiente"]');
               return a ? a.href : null; }""")
+            print(f"    ML pág {n + 1}: {len(tarjetas)} tarjetas, {len(nuevas)} nuevas, siguiente={siguiente}")
             if not siguiente and len(tarjetas) >= POR_PAGINA:
                 pie = self.page.evaluate("""() => { const n = document.querySelector('nav[aria-label*="aginaci"], .andes-pagination, .ui-search-pagination');
                   return n ? n.outerHTML.replace(/\\s+/g, ' ').slice(0, 1500) : 'sin bloque de paginación'; }""")
