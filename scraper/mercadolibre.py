@@ -112,7 +112,15 @@ class MercadoLibre:
             pass
         if "account-verification" in self.page.url or "/gz/" in self.page.url:
             raise RuntimeError(f"Mercado Libre pidió verificación (anti-robots) en {url}")
-        return self.page.evaluate(LEER_TARJETAS)
+        tarjetas = self.page.evaluate(LEER_TARJETAS)
+        if not tarjetas:
+            texto = self.page.evaluate("() => document.body ? document.body.innerText.slice(0, 400) : ''")
+            print(f"    Mercado Libre sin tarjetas · url final: {self.page.url} · título: {self.page.title()!r}")
+            print("    Texto de la página:", " ".join(texto.split())[:400])
+            clases = self.page.evaluate("""() => [...new Set([...document.querySelectorAll('[class]')]
+                .flatMap(e => [...e.classList]).filter(c => /search|poly|result|card/i.test(c)))].slice(0, 40).join(' ')""")
+            print("    Clases encontradas:", clases)
+        return tarjetas
 
     def buscar(self, url, max_paginas=10):
         avisos, vistos = [], set()
