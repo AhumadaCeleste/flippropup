@@ -163,7 +163,7 @@ class MercadoLibre:
                 break
             primera = tarjetas[0]["href"]
             time.sleep(PAUSA_ENTRE_PAGINAS)
-            boton.click()
+            boton.evaluate("e => e.click()")
             try:
                 self.page.wait_for_function(
                     "(h) => { const a = document.querySelector('a.poly-component__title, h3 a'); return a && a.href !== h; }",
