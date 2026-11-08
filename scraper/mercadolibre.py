@@ -158,7 +158,13 @@ class MercadoLibre:
             siguiente = self.page.evaluate("""() => {
               const a = document.querySelector('li.andes-pagination__button--next a, a[title="Siguiente"], a.andes-pagination__link[aria-label*="Siguiente"]');
               return a ? a.href : null; }""")
+            if not siguiente and len(tarjetas) >= POR_PAGINA:
+                pie = self.page.evaluate("""() => { const n = document.querySelector('nav[aria-label*="aginaci"], .andes-pagination, .ui-search-pagination');
+                  return n ? n.outerHTML.replace(/\\s+/g, ' ').slice(0, 1500) : 'sin bloque de paginación'; }""")
+                print("    Mercado Libre: no encontré 'Siguiente'. Paginación:", pie)
             if not nuevas or not siguiente or siguiente == pag_url:
+                if n:
+                    print(f"    Mercado Libre: fin en la página {n + 1} ({'sin avisos nuevos' if not nuevas else 'sin página siguiente'})")
                 break
             pag_url = siguiente
             time.sleep(PAUSA_ENTRE_PAGINAS)
