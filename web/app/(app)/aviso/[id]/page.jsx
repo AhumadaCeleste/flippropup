@@ -5,6 +5,7 @@ import { precio, variacion, porcentaje, diasDesde, fechaCorta } from "@/lib/form
 import { seguir, dejarDeSeguir, agregarNota, guardarObjetivo } from "@/app/acciones";
 import GraficoPrecios from "@/components/GraficoPrecios";
 import SelectorEstado from "@/components/SelectorEstado";
+import { nombrePortal } from "@/lib/filtros";
 
 export default async function Aviso({ params }) {
   const { id } = await params;
@@ -34,7 +35,7 @@ export default async function Aviso({ params }) {
           ) : (
             <form action={seguir.bind(null, p.id)}><button className="btn btn-principal">☆ Seguir</button></form>
           )}
-          <a className="btn" href={p.url} target="_blank" rel="noopener noreferrer">Ver en La Voz</a>
+          <a className="btn" href={p.url} target="_blank" rel="noopener noreferrer">Ver en {nombrePortal(p.portal)}</a>
         </div>
       </div>
 

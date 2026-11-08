@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { TIPOS, DORMITORIOS, PALABRAS_SUGERIDAS } from "@/lib/filtros";
+import { TIPOS, DORMITORIOS, PALABRAS_SUGERIDAS, PORTALES } from "@/lib/filtros";
 import { guardarBusqueda } from "@/app/acciones";
 
 const CORDOBA = 3173;
@@ -60,8 +60,9 @@ export default function FormularioBusqueda({ ubicaciones, filtros }) {
         <div className="campo">
           <span>Portales</span>
           <div className="opciones">
-            <label className="opcion"><input type="checkbox" checked readOnly /><span>La Voz</span></label>
-            <span className="chip" title="Se suman en la etapa 3">Argenprop y Zonaprop, próximamente</span>
+            {PORTALES.map((x) => (
+              <Opcion key={x.valor} name="portal" value={x.valor} checked={filtros.portales.includes(x.valor)}>{x.etiqueta}</Opcion>
+            ))}
           </div>
         </div>
         <div className="campo">

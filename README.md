@@ -113,3 +113,14 @@ Para que el login funcione en tu computadora, sumá `http://localhost:3000/**` e
 
 - Etapa 3: Argenprop y Zonaprop (por emails de alerta y agregar por link), detección de duplicados entre portales.
 - Etapa 4: precio por m² contra el promedio del barrio, puntaje de oportunidad, calculadora de compra + refacción + venta y mapa.
+
+## Portales
+- **Clasificados La Voz**: API interna, consultada desde un navegador Playwright (Cloudflare).
+- **Mercado Libre Inmuebles** (desde nov. 2026): páginas de resultados leídas con Playwright
+  (`scraper/mercadolibre.py`). La URL filtra tipo, dormitorios, provincia/ciudad, dueño directo y precio;
+  barrio, superficie y palabras se controlan después. Si un portal falla, el otro sigue.
+
+## Email
+Por defecto Gmail (puerto 465 y, si falla, 587). Opcional: Brevo, cargando los secrets
+`BREVO_API_KEY` y `BREVO_REMITENTE` (email verificado en Brevo). Para probar sin buscar,
+correr el workflow a mano con `prueba_email = 1`.

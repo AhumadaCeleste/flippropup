@@ -17,6 +17,7 @@ export async function buscarPublicaciones(supabase, f, ubicaciones, limite = 60)
     .select("*")
     .eq("estado", "activo");
 
+  if (f.portales?.length) q = q.in("portal", f.portales);
   if (f.tipos?.length) q = q.in("tipo", f.tipos);
   if (f.barrios_tid?.length) q = q.in("barrio", f.barrios_tid.map(nombre).filter(Boolean));
   else if (f.ciudad_tid && nombre(f.ciudad_tid)) q = q.eq("ciudad", nombre(f.ciudad_tid));

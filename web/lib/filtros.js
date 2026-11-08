@@ -12,6 +12,11 @@ export const DORMITORIOS = [
   { valor: "3-dormitorios", etiqueta: "3", texto: "3 Dormitorios" },
   { valor: "4-dormitorios-o-mas", etiqueta: "4 o más", texto: "4 Dormitorios o más" },
 ];
+export const PORTALES = [
+  { valor: "lavoz", etiqueta: "La Voz" },
+  { valor: "mercadolibre", etiqueta: "Mercado Libre" },
+];
+export const nombrePortal = (v) => PORTALES.find((x) => x.valor === v)?.etiqueta || v;
 export const PALABRAS_SUGERIDAS = ["a reciclar", "a refaccionar", "oportunidad", "sucesión", "dueño vende", "urgente"];
 export const ESTADOS = ["Interesa", "Contactado", "Visitado", "Ofertado", "Descartado", "Comprado"];
 
@@ -23,7 +28,10 @@ const numero = (v) => {
 
 export function filtrosDesdeParams(sp = {}) {
   return {
-    portales: ["lavoz"],
+    portales: (() => {
+      const elegidos = lista(sp.portal).filter((v) => PORTALES.some((x) => x.valor === v));
+      return elegidos.length ? elegidos : PORTALES.map((x) => x.valor);
+    })(),
     tipos: lista(sp.tipo),
     provincia_tid: numero(sp.provincia) ?? 3173,
     ciudad_tid: numero(sp.ciudad),
@@ -45,6 +53,7 @@ export function filtrosDesdeParams(sp = {}) {
 
 export function paramsDesdeFiltros(f) {
   const p = new URLSearchParams();
+  (f.portales || []).forEach((v) => p.append("portal", v));
   (f.tipos || []).forEach((t) => p.append("tipo", t));
   if (f.provincia_tid) p.set("provincia", f.provincia_tid);
   if (f.ciudad_tid) p.set("ciudad", f.ciudad_tid);
@@ -64,6 +73,7 @@ export function paramsDesdeFiltros(f) {
 export function resumenFiltros(f, ubicaciones = []) {
   const nombre = (tid) => ubicaciones.find((u) => u.tid === Number(tid))?.nombre;
   const partes = [];
+  if (f.portales?.length === 1) partes.push(`Solo ${nombrePortal(f.portales[0])}`);
   if (f.tipos?.length) partes.push(f.tipos.map((t) => TIPOS.find((x) => x.valor === t)?.etiqueta || t).join(" y "));
   const lugar = f.barrios_tid?.length ? f.barrios_tid.map(nombre).filter(Boolean).join(", ") : nombre(f.ciudad_tid);
   if (lugar) partes.push(lugar);

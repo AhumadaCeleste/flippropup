@@ -1,6 +1,7 @@
 """Robot diario de Flip PropUp.
 
-1. Entra a Clasificados La Voz y ejecuta cada búsqueda guardada y activa.
+1. Entra a Clasificados La Voz y a Mercado Libre y ejecuta cada búsqueda guardada y activa.
+   Si un portal falla, se sigue con el otro y el error queda en el resumen.
 2. Guarda o actualiza cada aviso, con su historial de precios.
 3. Revisa los avisos seguidos que no aparecieron (¿siguen publicados? ¿cambió el precio?).
 4. Envía el resumen por email con las novedades.
@@ -21,6 +22,7 @@ from playwright.sync_api import sync_playwright
 from supabase import create_client
 
 import emailer
+import mercadolibre as ml
 from lavoz import LaVoz, construir_consultas, normalizar
 
 ART = timezone(timedelta(hours=-3))
@@ -61,11 +63,28 @@ def pasa_filtros_locales(p, f):
     return True
 
 
+PORTALES_POR_DEFECTO = ["lavoz", "mercadolibre"]
+
+
+# Las búsquedas guardadas antes de sumar Mercado Libre tienen ["lavoz"] porque era
+# la única opción: a esas se les aplican todos los portales.
+ANTES_DE_MERCADOLIBRE = "2026-11-09"
+
+
+def portales_de(f, b=None):
+    elegidos = f.get("portales") or PORTALES_POR_DEFECTO
+    if b and elegidos == ["lavoz"] and (b.get("creada") or "") < ANTES_DE_MERCADOLIBRE:
+        return PORTALES_POR_DEFECTO
+    return elegidos
+
+
 class Robot:
     def __init__(self):
         self.sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
         self.vistos = set()
         self.resumen = {"busquedas": 0, "avisos": 0, "nuevos": 0, "cambios": 0}
+        self.errores = []
+        self._nombres = None
 
     # ---------- base de datos ----------
     def alerta(self, pub_id, tipo, antes=None, despues=None, busqueda_id=None):
@@ -120,40 +139,77 @@ class Robot:
             self.sb.table("ubicaciones").upsert(filas[i:i + 500], on_conflict="portal,tid").execute()
         print(f"Ubicaciones actualizadas: {len(filas)}")
 
-    def procesar_busqueda(self, lv, b):
+    def nombres_ubicaciones(self):
+        if self._nombres is None:
+            filas = (self.sb.table("ubicaciones").select("tid,nombre").eq("portal", "lavoz")
+                     .range(0, 9999).execute().data)
+            self._nombres = {u["tid"]: u["nombre"] for u in filas}
+        return self._nombres
+
+    def registrar(self, b, p, tipo, primera_vez):
+        p = {k: v for k, v in p.items() if not k.startswith("_")}
+        pub_id, es_nuevo = self.guardar(p)
+        self.vistos.add(pub_id)
+        self.resumen["avisos"] += 1
+        self.sb.table("busqueda_resultados").upsert(
+            {"busqueda_id": b["id"], "publicacion_id": pub_id},
+            on_conflict="busqueda_id,publicacion_id", ignore_duplicates=True).execute()
+        if es_nuevo:
+            self.resumen["nuevos"] += 1
+            if not primera_vez:  # la primera vez no avisamos todo como "nuevo"
+                self.alerta(pub_id, "nuevo", None, p["precio"], b["id"])
+
+    def buscar_lavoz(self, lv, b, primera_vez):
         f = b["filtros"] or {}
-        if "lavoz" not in (f.get("portales") or ["lavoz"]):
-            return
-        primera_vez = b["ultima_ejecucion"] is None
         for tipo, consulta in construir_consultas(f):
             crudos = lv.buscar(consulta, MAX_PAGINAS)
-            print(f"  [{b['nombre']}] {tipo}: {len(crudos)} avisos · {consulta}")
+            print(f"  [{b['nombre']}] La Voz · {tipo}: {len(crudos)} avisos · {consulta}")
             for a in crudos:
                 p = normalizar(a, tipo)
-                if not pasa_filtros_locales(p, f):
-                    continue
-                pub_id, es_nuevo = self.guardar(p)
-                self.vistos.add(pub_id)
-                self.resumen["avisos"] += 1
-                self.sb.table("busqueda_resultados").upsert(
-                    {"busqueda_id": b["id"], "publicacion_id": pub_id},
-                    on_conflict="busqueda_id,publicacion_id", ignore_duplicates=True).execute()
-                if es_nuevo:
-                    self.resumen["nuevos"] += 1
-                    if not primera_vez:  # la primera vez no avisamos todo como "nuevo"
-                        self.alerta(pub_id, "nuevo", None, p["precio"], b["id"])
+                if pasa_filtros_locales(p, f):
+                    self.registrar(b, p, tipo, primera_vez)
+
+    def buscar_mercadolibre(self, mlp, b, primera_vez):
+        f = b["filtros"] or {}
+        nombres = self.nombres_ubicaciones()
+        for tipo, dorm, url in ml.construir_consultas(f, nombres):
+            crudos = mlp.buscar(url, MAX_PAGINAS)
+            validos = 0
+            for t in crudos:
+                p = ml.normalizar(t, tipo, dorm, f)
+                if p["portal_id"] and ml.coincide_ubicacion(p, f, nombres) and pasa_filtros_locales(p, f):
+                    self.registrar(b, p, tipo, primera_vez)
+                    validos += 1
+            print(f"  [{b['nombre']}] Mercado Libre · {tipo}: {len(crudos)} avisos, {validos} pasan los filtros · {url}")
+
+    def procesar_busqueda(self, portales, b):
+        f = b["filtros"] or {}
+        primera_vez = b["ultima_ejecucion"] is None
+        for nombre, buscador in (("lavoz", self.buscar_lavoz), ("mercadolibre", self.buscar_mercadolibre)):
+            if nombre not in portales_de(f, b) or portales.get(nombre) is None:
+                continue
+            try:
+                buscador(portales[nombre], b, primera_vez)
+            except Exception as e:
+                self.errores.append(f"{nombre} · {b['nombre']}: {e}")
+                print(f"  ERROR en {nombre} ({b['nombre']}): {e}")
+                traceback.print_exc()
         self.sb.table("busquedas").update({"ultima_ejecucion": ahora()}).eq("id", b["id"]).execute()
         self.resumen["busquedas"] += 1
 
-    def revisar_seguidos(self, lv):
+    def revisar_seguidos(self, portales):
         seguidos = (self.sb.table("seguimientos")
                     .select("publicacion_id, publicaciones(id,url,precio,moneda,estado,portal)")
                     .execute().data)
         for s in seguidos:
             p = s["publicaciones"]
-            if not p or p["id"] in self.vistos or p["estado"] != "activo" or p["portal"] != "lavoz":
+            if not p or p["id"] in self.vistos or p["estado"] != "activo" or portales.get(p["portal"]) is None:
                 continue
-            estado = lv.estado_aviso(p["url"])
+            try:
+                estado = portales[p["portal"]].estado_aviso(p["url"])
+            except Exception as e:
+                print(f"  No pude revisar {p['url']}: {e}")
+                continue
             if not estado["activo"]:
                 self.sb.table("publicaciones").update({"estado": "dado_de_baja"}).eq("id", p["id"]).execute()
                 self.alerta(p["id"], "dado_de_baja", p["precio"], None)
@@ -209,19 +265,38 @@ class Robot:
             busquedas = q.execute().data
             with sync_playwright() as pw:
                 navegador = pw.chromium.launch(headless=True)
-                pagina = navegador.new_context(locale="es-AR", viewport={"width": 1366, "height": 900}).new_page()
-                lv = LaVoz(pagina)
-                lv.abrir()
-                self.actualizar_ubicaciones(lv)
+                contexto = navegador.new_context(locale="es-AR", viewport={"width": 1366, "height": 900})
+                portales = {}
+                try:
+                    lv = LaVoz(contexto.new_page())
+                    lv.abrir()
+                    self.actualizar_ubicaciones(lv)
+                    portales["lavoz"] = lv
+                except Exception as e:
+                    self.errores.append(f"lavoz · al abrir: {e}")
+                    traceback.print_exc()
+                if any("mercadolibre" in portales_de(b["filtros"] or {}, b) for b in busquedas):
+                    try:
+                        mlp = ml.MercadoLibre(contexto.new_page())
+                        mlp.abrir()
+                        portales["mercadolibre"] = mlp
+                    except Exception as e:
+                        self.errores.append(f"mercadolibre · al abrir: {e}")
+                        traceback.print_exc()
                 for b in busquedas:
-                    self.procesar_busqueda(lv, b)
-                self.revisar_seguidos(lv)
+                    self.procesar_busqueda(portales, b)
+                self.revisar_seguidos(portales)
                 navegador.close()
             if os.environ.get("SIN_EMAIL") != "1":
                 self.enviar_resumen()
             detalle = ", ".join(f"{k}: {v}" for k, v in self.resumen.items())
-            self.sb.table("ejecuciones").update({"fin": ahora(), "estado": "ok", "detalle": detalle}).eq("id", ej).execute()
+            if self.errores:
+                detalle += " · errores: " + " | ".join(self.errores)
+            estado = "ok" if not self.errores else "error"
+            self.sb.table("ejecuciones").update({"fin": ahora(), "estado": estado, "detalle": detalle[:3000]}).eq("id", ej).execute()
             print("Listo ·", detalle)
+            if self.errores and not self.resumen["avisos"]:
+                raise RuntimeError("Ningún portal devolvió avisos: " + " | ".join(self.errores))
         except Exception:
             self.sb.table("ejecuciones").update({"fin": ahora(), "estado": "error",
                                                  "detalle": traceback.format_exc()[-3000:]}).eq("id", ej).execute()

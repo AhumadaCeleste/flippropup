@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { seguir, dejarDeSeguir, descartar } from "@/app/acciones";
 import { precio, diasDesde } from "@/lib/formato";
+import { nombrePortal } from "@/lib/filtros";
 
 export default function Tarjeta({ p, seguido }) {
   const dias = diasDesde(p.fecha_publicacion || p.primera_vez);
@@ -13,7 +14,7 @@ export default function Tarjeta({ p, seguido }) {
     <article className="tarjeta">
       <Link href={`/aviso/${p.id}`} className="foto">
         {p.foto_principal ? <img src={p.foto_principal} alt="" loading="lazy" /> : null}
-        <span className="chip portal">La Voz</span>
+        <span className="chip portal">{nombrePortal(p.portal)}</span>
       </Link>
       <div className="cuerpo">
         <div className="precio">{precio(p.precio, p.moneda)}</div>
