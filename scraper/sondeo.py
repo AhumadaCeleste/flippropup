@@ -1,46 +1,46 @@
-"""Sondeo: abre páginas de cada portal desde GitHub Actions y guarda el HTML para analizarlo."""
-import os, sys
+"""Sondeo: prueba cómo responde cada portal desde GitHub Actions (se corre a mano)."""
+import json
 from playwright.sync_api import sync_playwright
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-URLS = {
-    "zonaprop": "https://www.zonaprop.com.ar/departamentos-venta-cordoba-1-habitacion.html",
-    "argenprop": "https://www.argenprop.com/departamentos/venta/cordoba/1-dormitorio",
-    "properati": "https://www.properati.com.ar/s/cordoba/departamento/venta",
-    "remax": "https://www.remax.com.ar/listings/buy?page=0&pageSize=24&locations=in::Córdoba",
-    "clarin": "https://inmuebles.clarin.com/departamentos-venta-cordoba",
-    "cabaprop": "https://www.cabaprop.com.ar/",
-    "inmoup": "https://www.inmoup.com.ar/inmuebles-en-venta-en-cordoba",
-    "lavozdelinterior_casas": "https://clasificados.lavoz.com.ar/inmuebles/casas",
-}
-os.makedirs("sondeo", exist_ok=True)
+
 with sync_playwright() as pw:
     nav = pw.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
     ctx = nav.new_context(locale="es-AR", user_agent=UA, viewport={"width": 1366, "height": 900},
                           extra_http_headers={"Accept-Language": "es-AR,es;q=0.9"})
     ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-    for nombre, url in URLS.items():
-        pg = ctx.new_page()
-        try:
-            r = pg.goto(url, wait_until="domcontentloaded", timeout=60000)
-            pg.wait_for_timeout(15000 if nombre == "zonaprop" else 6000)
-            html = pg.content()
-            open(f"sondeo/{nombre}.html", "w").write(html)
-            texto = " ".join(pg.evaluate("() => document.body ? document.body.innerText : ''").split())
-            print(f"== {nombre}: status {r.status if r else None} · {pg.url} · título {pg.title()!r} · {len(html)} bytes")
-            print("   ", texto[:300])
-            info = pg.evaluate(r"""() => {
-              const cls = {};
-              document.querySelectorAll('[class]').forEach(e => e.classList.forEach(c => {
-                if (/poly|ui-search|andes-money|posting|card|price|location|feature/i.test(c)) cls[c] = (cls[c]||0)+1; }));
-              const top = Object.entries(cls).sort((a,b)=>b[1]-a[1]).slice(0,40).map(x=>x[0]+':'+x[1]).join(' ');
-              const card = document.querySelector('li.ui-search-layout__item, div.poly-card, [data-qa="posting PROPERTY"], div.postingCard, [class*="postingCard"]');
-              return {top, card: card ? card.outerHTML.replace(/\s+/g,' ').replace(/<svg.*?<\/svg>/g,'<svg/>').slice(0, 4000) : null};
-            }""")
-            print("   CLASES:", info["top"])
-            print("   TARJETA:", (info["card"] or "")[:300])
-        except Exception as e:
-            print(f"== {nombre}: ERROR {e}")
-        pg.close()
+
+    # Zonaprop: API interna desde la página (igual que La Voz)
+    pg = ctx.new_page()
+    pg.goto("https://www.zonaprop.com.ar/departamentos-venta-cordoba.html", wait_until="domcontentloaded", timeout=60000)
+    pg.wait_for_timeout(8000)
+    print("== zonaprop página:", pg.title())
+    res = pg.evaluate("""async () => {
+      const r = await fetch('/rplis-api/postings', {method: 'POST', headers: {'content-type': 'application/json'},
+        body: JSON.stringify({pagina: 1, tipoDeOperacion: '1', tipoDePropiedad: '2', city: null, province: null})});
+      return {status: r.status, body: (await r.text()).slice(0, 600)}; }""")
+    print("== zonaprop API:", res["status"], res["body"].replace("\\n", " ")[:600])
+    pg.close()
+
+    # InmoUP: estructura de las tarjetas
+    pg = ctx.new_page()
+    pg.goto("https://inmoup.com.ar/inmuebles-en-venta-en-cordoba-de-cordoba", wait_until="domcontentloaded", timeout=60000)
+    pg.wait_for_timeout(6000)
+    info = pg.evaluate(r"""() => {
+      const precios = [...document.querySelectorAll('body *')].filter(e => e.children.length === 0 && /U\$S|USD|\$\s?\d/.test(e.textContent)).slice(0, 3);
+      let card = precios[0];
+      for (let i = 0; card && i < 8; i++) { if (card.querySelector && card.querySelector('a[href]') && card.querySelector('img')) break; card = card.parentElement; }
+      const ld = [...document.querySelectorAll('script[type="application/ld+json"]')].map(s => s.textContent.slice(0, 500));
+      const links = [...new Set([...document.querySelectorAll('a[href]')].map(a => a.href).filter(h => /propiedad|inmueble|ficha|\d{4,}/.test(h)))].slice(0, 6);
+      const pag = [...document.querySelectorAll('a[href]')].filter(a => /pagina|page|siguiente/i.test(a.href + a.textContent)).slice(0, 4).map(a => a.textContent.trim().slice(0,15) + ' ' + a.href);
+      return {card: card ? card.outerHTML.replace(/\s+/g, ' ').replace(/<svg.*?<\/svg>/g, '<svg/>').slice(0, 3500) : null,
+              cardClass: card ? card.className : null, ld, links, pag,
+              total: document.querySelectorAll(card ? '.' + [...card.classList].join('.') : 'x').length};
+    }""")
+    print("== inmoup clase tarjeta:", info["cardClass"], "· cantidad:", info["total"])
+    print("== inmoup links:", info["links"])
+    print("== inmoup paginación:", info["pag"])
+    print("== inmoup ld+json:", info["ld"][:2])
+    print("== inmoup TARJETA:", info["card"])
     nav.close()
