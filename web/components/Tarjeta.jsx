@@ -2,6 +2,7 @@ import Link from "next/link";
 import { seguir, dejarDeSeguir, descartar } from "@/app/acciones";
 import { precio, diasDesde } from "@/lib/formato";
 import { nombrePortal } from "@/lib/filtros";
+import BotonWhatsApp from "@/components/BotonWhatsApp";
 
 export default function Tarjeta({ p, seguido }) {
   const dias = diasDesde(p.fecha_publicacion || p.primera_vez);
@@ -32,6 +33,7 @@ export default function Tarjeta({ p, seguido }) {
         ) : (
           <form action={seguir.bind(null, p.id)}><button className="btn btn-chico btn-principal">☆ Seguir</button></form>
         )}
+        <BotonWhatsApp p={p} />
         <a className="btn btn-chico" href={p.url} target="_blank" rel="noopener noreferrer">Ver en el portal</a>
         {!seguido && (
           <form action={descartar.bind(null, p.id)}><button className="btn btn-chico btn-texto" title="No volver a mostrar">Descartar</button></form>

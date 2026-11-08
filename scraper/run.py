@@ -22,6 +22,7 @@ from playwright.sync_api import sync_playwright
 from supabase import create_client
 
 import emailer
+import telefonos
 import cordobaprop as cp
 import inmoup
 import mercadolibre as ml
@@ -29,6 +30,20 @@ from lavoz import LaVoz, construir_consultas, normalizar
 
 ART = timezone(timedelta(hours=-3))
 MAX_PAGINAS = int(os.environ.get("MAX_PAGINAS", "10"))
+ENRIQUECER_MAX = int(os.environ.get("ENRIQUECER_MAX", "120"))  # fichas a leer por corrida (ubicación y teléfono)
+PORTALES_CON_FICHA = ["cordobaprop", "mercadolibre", "inmoup"]
+
+# Lee de la ficha de un aviso las coordenadas y el teléfono (si el portal los muestra sin pedir clic).
+LEER_FICHA = r"""() => {
+  const html = document.documentElement.outerHTML;
+  let m = html.match(/"latitude"\s*:\s*"?(-?\d+\.\d+)"?\s*,\s*"longitude"\s*:\s*"?(-?\d+\.\d+)/)
+       || html.match(/[?&;]ll=(-?\d+\.\d+),(-?\d+\.\d+)/)
+       || html.match(/"lat"\s*:\s*"?(-?\d+\.\d+)"?\s*,\s*"(?:lng|lon)"\s*:\s*"?(-?\d+\.\d+)/);
+  const wa = html.match(/(?:wa\.me\/|api\.whatsapp\.com\/send\?phone=)\+?(\d{8,15})/);
+  const tel = document.querySelector('a[href^="tel:"]');
+  return {lat: m ? Number(m[1]) : null, lng: m ? Number(m[2]) : null,
+          telefono: wa ? wa[1] : (tel ? tel.getAttribute('href').slice(4) : null)};
+}"""
 CAMPOS_ACTUALIZABLES = ["url", "titulo", "descripcion", "provincia", "ciudad", "barrio", "lat", "lng",
                         "superficie_total", "dormitorios", "banos", "vendedor_tipo", "vendedor_nombre",
                         "apto_escritura", "apto_credito", "fotos", "foto_principal", "fecha_publicacion"]
@@ -89,9 +104,19 @@ class Robot:
         self.vistos = set()
         self.resumen = {"busquedas": 0, "avisos": 0, "nuevos": 0, "cambios": 0}
         self.errores = []
+        self.tiene_contacto = self._columnas_contacto()
         self._nombres = None
 
     # ---------- base de datos ----------
+    def _columnas_contacto(self):
+        """Las columnas telefono y enriquecido_en se agregan con database/migraciones/2026-11-08-contacto-y-mapa.sql."""
+        try:
+            self.sb.table("publicaciones").select("telefono,enriquecido_en").limit(1).execute()
+            return True
+        except Exception:
+            print("Aviso: falta correr la migración 2026-11-08-contacto-y-mapa.sql (teléfonos). Sigo sin guardarlos.")
+            return False
+
     def alerta(self, pub_id, tipo, antes=None, despues=None, busqueda_id=None):
         self.sb.table("alertas").insert({
             "publicacion_id": pub_id, "tipo": tipo, "valor_anterior": antes,
@@ -119,6 +144,9 @@ class Robot:
         return True
 
     def guardar(self, p):
+        p = dict(p)
+        if not self.tiene_contacto or not p.get("telefono"):
+            p.pop("telefono", None)
         actual = (self.sb.table("publicaciones").select("id,precio,moneda,estado")
                   .eq("portal", p["portal"]).eq("portal_id", p["portal_id"]).execute().data)
         if not actual:
@@ -128,6 +156,11 @@ class Robot:
             return pub_id, True
         actual = actual[0]
         cambios = {k: p[k] for k in CAMPOS_ACTUALIZABLES}
+        if p.get("telefono"):
+            cambios["telefono"] = p["telefono"]
+        for k in ("lat", "lng"):
+            if cambios.get(k) is None:
+                cambios.pop(k, None)
         cambios.update(ultima_vez=ahora(), estado="activo")
         if self.cambio_precio(actual, p["precio"], p["moneda"]) or actual["precio"] is None:
             cambios.update(precio=p["precio"], moneda=p["moneda"])
@@ -251,6 +284,41 @@ class Robot:
                 self.sb.table("publicaciones").update({"ultima_vez": ahora()}).eq("id", p["id"]).execute()
             time.sleep(1)
 
+    def enriquecer(self, portales):
+        """Entra a la ficha de los avisos nuevos para sacar ubicación (para el mapa) y teléfono."""
+        activos = [x for x in PORTALES_CON_FICHA if portales.get(x)]
+        if not activos or ENRIQUECER_MAX <= 0:
+            return
+        q = (self.sb.table("publicaciones").select("id,url,portal,lat,telefono" if self.tiene_contacto else "id,url,portal,lat")
+             .eq("estado", "activo").in_("portal", activos).order("primera_vez", desc=True).limit(ENRIQUECER_MAX))
+        q = q.is_("enriquecido_en", "null") if self.tiene_contacto else q.is_("lat", "null")
+        pendientes = q.execute().data
+        con_lugar = con_tel = 0
+        for p in pendientes:
+            pagina = portales[p["portal"]].page
+            try:
+                resp = pagina.goto(p["url"], wait_until="domcontentloaded", timeout=45000)
+                pagina.wait_for_timeout(1200)
+                datos = pagina.evaluate(LEER_FICHA) if resp is not None and resp.status < 400 else {}
+            except Exception as e:
+                print(f"  No pude leer la ficha {p['url']}: {e}")
+                datos = {}
+            cambios = {}
+            lat, lng = datos.get("lat"), datos.get("lng")
+            if lat and lng and -56 < lat < -21 and -74 < lng < -53 and p.get("lat") is None:
+                cambios.update(lat=lat, lng=lng)
+                con_lugar += 1
+            if self.tiene_contacto:
+                tel = telefonos.normalizar(datos.get("telefono") or "")
+                if tel and not p.get("telefono"):
+                    cambios["telefono"] = tel
+                    con_tel += 1
+                cambios["enriquecido_en"] = ahora()
+            if cambios:
+                self.sb.table("publicaciones").update(cambios).eq("id", p["id"]).execute()
+            time.sleep(0.8)
+        print(f"Fichas leídas: {len(pendientes)} · con ubicación: {con_lugar} · con teléfono: {con_tel}")
+
     def enviar_resumen(self):
         pendientes = (self.sb.table("alertas").select("*, publicaciones(*)")
                       .eq("enviada", False).order("fecha").execute().data)
@@ -334,6 +402,11 @@ class Robot:
                 for b in busquedas:
                     self.procesar_busqueda(portales, b)
                 self.revisar_seguidos(portales)
+                try:
+                    self.enriquecer(portales)
+                except Exception as e:
+                    self.errores.append(f"fichas: {e}")
+                    traceback.print_exc()
                 navegador.close()
             if os.environ.get("SIN_EMAIL") != "1":
                 self.enviar_resumen()

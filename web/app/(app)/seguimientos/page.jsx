@@ -4,6 +4,7 @@ import { ESTADOS } from "@/lib/filtros";
 import { precio, variacion, porcentaje, diasDesde } from "@/lib/formato";
 import { dejarDeSeguir, guardarObjetivo } from "@/app/acciones";
 import SelectorEstado from "@/components/SelectorEstado";
+import BotonWhatsApp from "@/components/BotonWhatsApp";
 
 export const metadata = { title: "Mis seguimientos · Flip PropUp" };
 
@@ -85,7 +86,10 @@ export default async function Seguimientos({ searchParams }) {
                     <td className="num">{dias ?? "—"}</td>
                     <td className="num"><Link href={`/aviso/${p.id}#notas`}>{s.cantNotas}</Link></td>
                     <td>
-                      <form action={dejarDeSeguir.bind(null, p.id)}><button className="btn btn-chico btn-texto">Quitar</button></form>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <BotonWhatsApp p={p} />
+                        <form action={dejarDeSeguir.bind(null, p.id)}><button className="btn btn-chico btn-texto">Quitar</button></form>
+                      </div>
                     </td>
                   </tr>
                 );

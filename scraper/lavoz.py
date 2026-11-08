@@ -9,6 +9,8 @@ import re
 import time
 from datetime import datetime
 
+import telefonos
+
 BASE = "https://clasificados.lavoz.com.ar"
 CATEGORIA_INMUEBLES = 6330
 TIPOS = {"casa": 6331, "departamento": 6334, "terreno": 6333}
@@ -194,4 +196,5 @@ def normalizar(a, tipo):
         "fotos": fotos,
         "foto_principal": fotos[0] if fotos else None,
         "fecha_publicacion": _fecha(a.get("publish_date")),
+        "telefono": telefonos.buscar(a.get("body")),
     }

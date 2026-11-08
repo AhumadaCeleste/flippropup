@@ -138,3 +138,13 @@ td .mini { width: 88px; height: 60px; object-fit: cover; border-radius: var(--ra
 .login { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: var(--base) url("/fondo-hero.jpg") center / cover; }
 .login .caja { width: 100%; max-width: 420px; display: grid; gap: 20px; justify-items: center; text-align: center; background: rgba(15, 23, 42, .82); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 40px 28px; }
 .login .caja img { width: 260px; }
+
+/* ---------- WhatsApp y mapa ---------- */
+.btn-whatsapp { background: #25D366; color: #0B2E1A; border-color: #25D366; }
+.btn-whatsapp:hover { filter: brightness(1.06); border-color: #25D366; }
+.pestanas { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+.pestanas a { padding: 8px 16px; font-weight: 700; font-size: 14px; color: var(--text-muted); text-decoration: none; background: var(--base-deepest); }
+.pestanas a[aria-current="page"] { background: var(--accent); color: var(--on-accent); }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--base-deep); color: var(--text); }
+.leaflet-popup-content a { color: var(--accent); }
+.leaflet-container { background: var(--base-deepest); font-family: inherit; }

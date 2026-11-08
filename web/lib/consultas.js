@@ -48,13 +48,17 @@ function consultaPortal(supabase, f, ubicaciones, portal, descartados) {
 
 // Consulta cada portal por separado y los mezcla, para que un portal con muchos
 // avisos recién cargados no tape a los demás. Devuelve también el total por portal.
-export async function buscarPublicaciones(supabase, f, ubicaciones, limite = 90) {
+export async function buscarPublicaciones(supabase, f, ubicaciones, limite = 90, { conCoordenadas = false } = {}) {
   const portales = f.portales?.length ? f.portales : PORTALES.map((x) => x.valor);
   const { data: descartes } = await supabase.from("descartes").select("publicacion_id");
   const descartados = (descartes || []).map((d) => d.publicacion_id);
 
   const respuestas = await Promise.all(
-    portales.map((portal) => consultaPortal(supabase, f, ubicaciones, portal, descartados).limit(limite))
+    portales.map((portal) => {
+      let q = consultaPortal(supabase, f, ubicaciones, portal, descartados);
+      if (conCoordenadas) q = q.not("lat", "is", null);
+      return q.limit(limite);
+    })
   );
   const totales = {};
   const listas = respuestas.map((r, i) => {

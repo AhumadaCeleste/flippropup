@@ -88,6 +88,8 @@ create table if not exists publicaciones (
   fotos               jsonb not null default '[]'::jsonb,
   foto_principal      text,
   fecha_publicacion   date,
+  telefono            text,            -- 549 + área + número (para WhatsApp)
+  enriquecido_en      timestamptz,     -- cuándo el robot leyó la ficha
   primera_vez         timestamptz not null default now(),
   ultima_vez          timestamptz not null default now(),
   estado              text not null default 'activo' check (estado in ('activo', 'dado_de_baja')),
