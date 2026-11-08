@@ -1,5 +1,5 @@
 import { supabaseServidor } from "@/lib/supabase/server";
-import { filtrosDesdeParams, resumenFiltros } from "@/lib/filtros";
+import { filtrosDesdeParams, resumenFiltros, nombrePortal } from "@/lib/filtros";
 import { buscarPublicaciones, ubicacionesLaVoz, idsSeguidos } from "@/lib/consultas";
 import FormularioBusqueda from "@/components/FormularioBusqueda";
 import Tarjeta from "@/components/Tarjeta";
@@ -11,7 +11,7 @@ export default async function Buscar({ searchParams }) {
   const filtros = filtrosDesdeParams(sp);
   const supabase = await supabaseServidor();
   const ubicaciones = await ubicacionesLaVoz(supabase);
-  const [resultados, seguidos] = await Promise.all([
+  const [{ lista: resultados, totales, total }, seguidos] = await Promise.all([
     buscarPublicaciones(supabase, filtros, ubicaciones),
     idsSeguidos(supabase),
   ]);
@@ -26,7 +26,13 @@ export default async function Buscar({ searchParams }) {
       </div>
       <FormularioBusqueda ubicaciones={ubicaciones} filtros={filtros} />
       <div className="encabezado">
-        <h2>{resultados.length === 60 ? "Más de 60" : resultados.length} resultados</h2>
+        <div>
+          <h2 style={{ margin: 0 }}>{total.toLocaleString("es-AR")} resultados</h2>
+          <span className="muted" style={{ fontSize: 14 }}>
+            {Object.entries(totales).map(([p, n]) => `${nombrePortal(p)}: ${n.toLocaleString("es-AR")}`).join(" · ")}
+            {total > resultados.length ? ` · se muestran ${resultados.length}; afiná los filtros para ver otros` : ""}
+          </span>
+        </div>
         <span className="muted" style={{ fontSize: 14 }}>{resumenFiltros(filtros, ubicaciones)}</span>
       </div>
       {resultados.length ? (

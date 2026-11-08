@@ -10,14 +10,15 @@ export async function ubicacionesLaVoz(supabase) {
   return data || [];
 }
 
-export async function buscarPublicaciones(supabase, f, ubicaciones, limite = 60) {
+// Arma la consulta de un portal con todos los filtros.
+function consultaPortal(supabase, f, ubicaciones, portal, descartados) {
   const nombre = (tid) => ubicaciones.find((u) => u.tid === Number(tid))?.nombre;
   let q = supabase
     .from("publicaciones")
-    .select("*")
-    .eq("estado", "activo");
+    .select("*", { count: "exact" })
+    .eq("estado", "activo")
+    .eq("portal", portal);
 
-  if (f.portales?.length) q = q.in("portal", f.portales);
   if (f.tipos?.length) q = q.in("tipo", f.tipos);
   if (f.barrios_tid?.length) q = q.in("barrio", f.barrios_tid.map(nombre).filter(Boolean));
   else if (f.ciudad_tid && nombre(f.ciudad_tid)) q = q.eq("ciudad", nombre(f.ciudad_tid));
@@ -37,18 +38,43 @@ export async function buscarPublicaciones(supabase, f, ubicaciones, limite = 60)
     const limpio = (w) => w.replace(/[%,()]/g, " ").trim();
     q = q.or(f.palabras.flatMap((w) => [`titulo.ilike.%${limpio(w)}%`, `descripcion.ilike.%${limpio(w)}%`]).join(","));
   }
-
-  const { data: descartes } = await supabase.from("descartes").select("publicacion_id");
-  const ids = (descartes || []).map((d) => d.publicacion_id);
-  if (ids.length) q = q.not("id", "in", `(${ids.join(",")})`);
+  if (descartados.length) q = q.not("id", "in", `(${descartados.join(",")})`);
 
   if (f.orden === "precio") q = q.order("precio", { ascending: true, nullsFirst: false });
   else if (f.orden === "precio_m2") q = q.order("precio_m2", { ascending: true, nullsFirst: false });
   else q = q.order("primera_vez", { ascending: false });
+  return q;
+}
 
-  const { data, error } = await q.limit(limite);
-  if (error) throw new Error(error.message);
-  return data || [];
+// Consulta cada portal por separado y los mezcla, para que un portal con muchos
+// avisos recién cargados no tape a los demás. Devuelve también el total por portal.
+export async function buscarPublicaciones(supabase, f, ubicaciones, limite = 90) {
+  const portales = f.portales?.length ? f.portales : ["lavoz", "mercadolibre"];
+  const { data: descartes } = await supabase.from("descartes").select("publicacion_id");
+  const descartados = (descartes || []).map((d) => d.publicacion_id);
+
+  const respuestas = await Promise.all(
+    portales.map((portal) => consultaPortal(supabase, f, ubicaciones, portal, descartados).limit(limite))
+  );
+  const totales = {};
+  const listas = respuestas.map((r, i) => {
+    if (r.error) throw new Error(r.error.message);
+    totales[portales[i]] = r.count ?? (r.data || []).length;
+    return r.data || [];
+  });
+
+  let lista;
+  if (f.orden === "precio" || f.orden === "precio_m2") {
+    const campo = f.orden === "precio" ? "precio" : "precio_m2";
+    const valor = (p) => (p[campo] == null ? Infinity : Number(p[campo]));
+    lista = listas.flat().sort((a, b) => valor(a) - valor(b));
+  } else {
+    // "Más nuevos": se intercalan los portales (uno de cada uno).
+    lista = [];
+    for (let i = 0; lista.length < limite && listas.some((l) => i < l.length); i++)
+      listas.forEach((l) => { if (i < l.length) lista.push(l[i]); });
+  }
+  return { lista: lista.slice(0, limite), totales, total: Object.values(totales).reduce((a, b) => a + b, 0) };
 }
 
 export async function idsSeguidos(supabase) {
