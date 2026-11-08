@@ -11,18 +11,6 @@ with sync_playwright() as pw:
                           extra_http_headers={"Accept-Language": "es-AR,es;q=0.9"})
     ctx.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-    # Zonaprop: API interna desde la página (igual que La Voz)
-    pg = ctx.new_page()
-    pg.goto("https://www.zonaprop.com.ar/departamentos-venta-cordoba.html", wait_until="domcontentloaded", timeout=60000)
-    pg.wait_for_timeout(8000)
-    print("== zonaprop página:", pg.title())
-    res = pg.evaluate("""async () => {
-      const r = await fetch('/rplis-api/postings', {method: 'POST', headers: {'content-type': 'application/json'},
-        body: JSON.stringify({pagina: 1, tipoDeOperacion: '1', tipoDePropiedad: '2', city: null, province: null})});
-      return {status: r.status, body: (await r.text()).slice(0, 600)}; }""")
-    print("== zonaprop API:", res["status"], res["body"].replace("\\n", " ")[:600])
-    pg.close()
-
     # InmoUP: estructura de las tarjetas
     pg = ctx.new_page()
     pg.goto("https://inmoup.com.ar/inmuebles-en-venta-en-cordoba-de-cordoba", wait_until="domcontentloaded", timeout=60000)
@@ -36,7 +24,7 @@ with sync_playwright() as pw:
       const pag = [...document.querySelectorAll('a[href]')].filter(a => /pagina|page|siguiente/i.test(a.href + a.textContent)).slice(0, 4).map(a => a.textContent.trim().slice(0,15) + ' ' + a.href);
       return {card: card ? card.outerHTML.replace(/\s+/g, ' ').replace(/<svg.*?<\/svg>/g, '<svg/>').slice(0, 3500) : null,
               cardClass: card ? card.className : null, ld, links, pag,
-              total: document.querySelectorAll(card ? '.' + [...card.classList].join('.') : 'x').length};
+              total: (() => { try { return document.querySelectorAll('.' + [...card.classList].map(c => CSS.escape(c)).join('.')).length } catch (e) { return String(e) } })()};
     }""")
     print("== inmoup clase tarjeta:", info["cardClass"], "· cantidad:", info["total"])
     print("== inmoup links:", info["links"])
