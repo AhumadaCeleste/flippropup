@@ -16,6 +16,7 @@ export const PORTALES = [
   { valor: "lavoz", etiqueta: "La Voz" },
   { valor: "mercadolibre", etiqueta: "Mercado Libre" },
   { valor: "inmoup", etiqueta: "InmoUP" },
+  { valor: "cordobaprop", etiqueta: "CórdobaProp" },
 ];
 export const nombrePortal = (v) => PORTALES.find((x) => x.valor === v)?.etiqueta || v;
 export const PALABRAS_SUGERIDAS = ["a reciclar", "a refaccionar", "oportunidad", "sucesión", "dueño vende", "urgente"];

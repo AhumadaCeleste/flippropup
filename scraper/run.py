@@ -22,6 +22,7 @@ from playwright.sync_api import sync_playwright
 from supabase import create_client
 
 import emailer
+import cordobaprop as cp
 import inmoup
 import mercadolibre as ml
 from lavoz import LaVoz, construir_consultas, normalizar
@@ -64,7 +65,7 @@ def pasa_filtros_locales(p, f):
     return True
 
 
-PORTALES_POR_DEFECTO = ["lavoz", "mercadolibre", "inmoup"]
+PORTALES_POR_DEFECTO = ["lavoz", "mercadolibre", "inmoup", "cordobaprop"]
 
 
 # Las búsquedas guardadas antes de sumar Mercado Libre tienen ["lavoz"] porque era
@@ -199,11 +200,24 @@ class Robot:
                 validos += 1
         print(f"  [{b['nombre']}] InmoUP · {validos} de {len(crudos)} avisos pasan los filtros")
 
+    def buscar_cordobaprop(self, cpp, b, primera_vez):
+        f = b["filtros"] or {}
+        nombres = self.nombres_ubicaciones()
+        for tipo, dorm, url in cpp.construir_consultas(f, nombres):
+            crudos = cpp.buscar(url, MAX_PAGINAS * 2)
+            validos = 0
+            for t in crudos:
+                p = cp.normalizar(t, tipo, dorm, ml.TEXTO_DORMITORIOS)
+                if p["portal_id"] and cp.coincide_ubicacion(p, f, nombres) and pasa_filtros_locales(p, f):
+                    self.registrar(b, p, tipo, primera_vez)
+                    validos += 1
+            print(f"  [{b['nombre']}] CórdobaProp · {tipo}: {len(crudos)} avisos, {validos} pasan los filtros · {url}")
+
     def procesar_busqueda(self, portales, b):
         f = b["filtros"] or {}
         primera_vez = b["ultima_ejecucion"] is None
         for nombre, buscador in (("lavoz", self.buscar_lavoz), ("mercadolibre", self.buscar_mercadolibre),
-                                 ("inmoup", self.buscar_inmoup)):
+                                 ("inmoup", self.buscar_inmoup), ("cordobaprop", self.buscar_cordobaprop)):
             if nombre not in portales_de(f, b) or portales.get(nombre) is None:
                 continue
             try:
@@ -308,6 +322,14 @@ class Robot:
                         portales["inmoup"] = iu
                     except Exception as e:
                         self.errores.append(f"inmoup · al abrir: {e}")
+                        traceback.print_exc()
+                if any("cordobaprop" in portales_de(b["filtros"] or {}, b) for b in busquedas):
+                    try:
+                        cpp = cp.CordobaProp(ml.nuevo_contexto(navegador).new_page())
+                        cpp.abrir()
+                        portales["cordobaprop"] = cpp
+                    except Exception as e:
+                        self.errores.append(f"cordobaprop · al abrir: {e}")
                         traceback.print_exc()
                 for b in busquedas:
                     self.procesar_busqueda(portales, b)
