@@ -1,4 +1,4 @@
-import { DORMITORIOS } from "./filtros";
+import { DORMITORIOS, PORTALES } from "./filtros";
 
 export async function ubicacionesLaVoz(supabase) {
   const { data } = await supabase
@@ -49,7 +49,7 @@ function consultaPortal(supabase, f, ubicaciones, portal, descartados) {
 // Consulta cada portal por separado y los mezcla, para que un portal con muchos
 // avisos recién cargados no tape a los demás. Devuelve también el total por portal.
 export async function buscarPublicaciones(supabase, f, ubicaciones, limite = 90) {
-  const portales = f.portales?.length ? f.portales : ["lavoz", "mercadolibre"];
+  const portales = f.portales?.length ? f.portales : PORTALES.map((x) => x.valor);
   const { data: descartes } = await supabase.from("descartes").select("publicacion_id");
   const descartados = (descartes || []).map((d) => d.publicacion_id);
 

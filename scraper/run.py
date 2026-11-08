@@ -22,6 +22,7 @@ from playwright.sync_api import sync_playwright
 from supabase import create_client
 
 import emailer
+import inmoup
 import mercadolibre as ml
 from lavoz import LaVoz, construir_consultas, normalizar
 
@@ -63,7 +64,7 @@ def pasa_filtros_locales(p, f):
     return True
 
 
-PORTALES_POR_DEFECTO = ["lavoz", "mercadolibre"]
+PORTALES_POR_DEFECTO = ["lavoz", "mercadolibre", "inmoup"]
 
 
 # Las búsquedas guardadas antes de sumar Mercado Libre tienen ["lavoz"] porque era
@@ -74,6 +75,9 @@ ANTES_DE_MERCADOLIBRE = "2026-11-09"
 def portales_de(f, b=None):
     elegidos = f.get("portales") or PORTALES_POR_DEFECTO
     if b and elegidos == ["lavoz"] and (b.get("creada") or "") < ANTES_DE_MERCADOLIBRE:
+        return PORTALES_POR_DEFECTO
+    # Quien tenía marcados todos los portales disponibles recibe también los que se suman después.
+    if {"lavoz", "mercadolibre"} <= set(elegidos):
         return PORTALES_POR_DEFECTO
     return elegidos
 
@@ -182,10 +186,24 @@ class Robot:
                     validos += 1
             print(f"  [{b['nombre']}] Mercado Libre · {tipo}: {len(crudos)} avisos, {validos} pasan los filtros · {url}")
 
+    def buscar_inmoup(self, iu, b, primera_vez):
+        f = b["filtros"] or {}
+        nombres = self.nombres_ubicaciones()
+        ciudad = nombres.get(f.get("ciudad_tid")) or "Córdoba"
+        crudos = iu.todos(ciudad, MAX_PAGINAS * 2)
+        validos = 0
+        for a in crudos:
+            p = inmoup.normalizar(a, ciudad)
+            if inmoup.coincide(p, f, nombres, ml.TEXTO_DORMITORIOS) and pasa_filtros_locales(p, f):
+                self.registrar(b, p, p["tipo"], primera_vez)
+                validos += 1
+        print(f"  [{b['nombre']}] InmoUP · {validos} de {len(crudos)} avisos pasan los filtros")
+
     def procesar_busqueda(self, portales, b):
         f = b["filtros"] or {}
         primera_vez = b["ultima_ejecucion"] is None
-        for nombre, buscador in (("lavoz", self.buscar_lavoz), ("mercadolibre", self.buscar_mercadolibre)):
+        for nombre, buscador in (("lavoz", self.buscar_lavoz), ("mercadolibre", self.buscar_mercadolibre),
+                                 ("inmoup", self.buscar_inmoup)):
             if nombre not in portales_de(f, b) or portales.get(nombre) is None:
                 continue
             try:
@@ -282,6 +300,14 @@ class Robot:
                         portales["mercadolibre"] = mlp
                     except Exception as e:
                         self.errores.append(f"mercadolibre · al abrir: {e}")
+                        traceback.print_exc()
+                if any("inmoup" in portales_de(b["filtros"] or {}, b) for b in busquedas):
+                    try:
+                        iu = inmoup.InmoUP(ml.nuevo_contexto(navegador).new_page())
+                        iu.abrir()
+                        portales["inmoup"] = iu
+                    except Exception as e:
+                        self.errores.append(f"inmoup · al abrir: {e}")
                         traceback.print_exc()
                 for b in busquedas:
                     self.procesar_busqueda(portales, b)
