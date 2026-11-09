@@ -11,6 +11,7 @@ Variables de entorno (se cargan como Secrets en GitHub):
 Opcionales: BUSQUEDA_ID (correr solo una), SIN_EMAIL=1, MAX_PAGINAS (por defecto 10),
   PRUEBA_EMAIL=1 (solo manda un email de prueba, sin buscar), BREVO_API_KEY y BREVO_REMITENTE
 """
+import math
 import os
 import sys
 import time
@@ -24,6 +25,7 @@ from supabase import create_client
 import emailer
 import telefonos
 import cordobaprop as cp
+import inmobiliarias as inmo
 import inmoup
 import mercadolibre as ml
 from lavoz import LaVoz, construir_consultas, normalizar
@@ -31,7 +33,7 @@ from lavoz import LaVoz, construir_consultas, normalizar
 ART = timezone(timedelta(hours=-3))
 MAX_PAGINAS = int(os.environ.get("MAX_PAGINAS", "10"))
 ENRIQUECER_MAX = int(os.environ.get("ENRIQUECER_MAX", "120"))  # fichas a leer por corrida (ubicación y teléfono)
-PORTALES_CON_FICHA = ["cordobaprop", "mercadolibre", "inmoup"]
+PORTALES_CON_FICHA = ["cordobaprop", "inmobiliarias", "mercadolibre", "inmoup"]
 
 # Lee de la ficha de un aviso las coordenadas y el teléfono (si el portal los muestra sin pedir clic).
 LEER_FICHA = r"""() => {
@@ -80,7 +82,7 @@ def pasa_filtros_locales(p, f):
     return True
 
 
-PORTALES_POR_DEFECTO = ["lavoz", "mercadolibre", "inmoup", "cordobaprop"]
+PORTALES_POR_DEFECTO = ["lavoz", "mercadolibre", "inmoup", "cordobaprop", "inmobiliarias"]
 
 
 # Las búsquedas guardadas antes de sumar Mercado Libre tienen ["lavoz"] porque era
@@ -246,11 +248,24 @@ class Robot:
                     validos += 1
             print(f"  [{b['nombre']}] CórdobaProp · {tipo}: {len(crudos)} avisos, {validos} pasan los filtros · {url}")
 
+    def buscar_inmobiliarias(self, im, b, primera_vez):
+        f = b["filtros"] or {}
+        nombres = self.nombres_ubicaciones()
+        crudos = im.todos(MAX_PAGINAS)
+        validos = 0
+        for x in crudos:
+            p = inmo.normalizar(x)
+            if inmo.coincide(p, f, nombres, ml.TEXTO_DORMITORIOS) and pasa_filtros_locales(p, f):
+                self.registrar(b, p, p["tipo"], primera_vez)
+                validos += 1
+        print(f"  [{b['nombre']}] Inmobiliarias (webs Tokko) · {validos} de {len(crudos)} avisos pasan los filtros")
+
     def procesar_busqueda(self, portales, b):
         f = b["filtros"] or {}
         primera_vez = b["ultima_ejecucion"] is None
         for nombre, buscador in (("lavoz", self.buscar_lavoz), ("mercadolibre", self.buscar_mercadolibre),
-                                 ("inmoup", self.buscar_inmoup), ("cordobaprop", self.buscar_cordobaprop)):
+                                 ("inmoup", self.buscar_inmoup), ("cordobaprop", self.buscar_cordobaprop),
+                                 ("inmobiliarias", self.buscar_inmobiliarias)):
             if nombre not in portales_de(f, b) or portales.get(nombre) is None:
                 continue
             try:
@@ -318,6 +333,37 @@ class Robot:
                 self.sb.table("publicaciones").update(cambios).eq("id", p["id"]).execute()
             time.sleep(0.8)
         print(f"Fichas leídas: {len(pendientes)} · con ubicación: {con_lugar} · con teléfono: {con_tel}")
+
+    def alertar_relevamientos(self):
+        """Avisos nuevos a menos de 200 m de un lugar relevado, o con el teléfono del cartel."""
+        try:
+            relevados = self.sb.table("relevamientos").select("*").eq("activo", True).execute().data
+        except Exception:
+            return  # todavía no se corrió la migración
+        nuevas = 0
+        for r in relevados:
+            candidatos = []
+            if r.get("lat") and r.get("lng"):
+                lat, lng = float(r["lat"]), float(r["lng"])
+                d_lat, d_lng = 200 / 111000, 200 / (111000 * math.cos(math.radians(lat)))
+                candidatos += (self.sb.table("publicaciones").select("id,precio").eq("estado", "activo")
+                               .gte("lat", lat - d_lat).lte("lat", lat + d_lat).gte("lng", lng - d_lng).lte("lng", lng + d_lng)
+                               .gte("primera_vez", r["creado"]).execute().data)
+            if r.get("telefono") and self.tiene_contacto:
+                candidatos += self.sb.table("publicaciones").select("id,precio").eq("telefono", r["telefono"]).execute().data
+            vistos = set()
+            for c in candidatos:
+                if c["id"] in vistos:
+                    continue
+                vistos.add(c["id"])
+                ya = (self.sb.table("alertas").select("id").eq("relevamiento_id", r["id"])
+                      .eq("publicacion_id", c["id"]).limit(1).execute().data)
+                if not ya:
+                    self.sb.table("alertas").insert({"publicacion_id": c["id"], "tipo": "cerca_relevamiento",
+                                                     "valor_nuevo": c["precio"], "relevamiento_id": r["id"]}).execute()
+                    nuevas += 1
+        if relevados:
+            print(f"Relevamientos activos: {len(relevados)} · avisos nuevos relacionados: {nuevas}")
 
     def enviar_resumen(self):
         pendientes = (self.sb.table("alertas").select("*, publicaciones(*)")
@@ -399,6 +445,8 @@ class Robot:
                     except Exception as e:
                         self.errores.append(f"cordobaprop · al abrir: {e}")
                         traceback.print_exc()
+                if any("inmobiliarias" in portales_de(b["filtros"] or {}, b) for b in busquedas):
+                    portales["inmobiliarias"] = inmo.Inmobiliarias(ml.nuevo_contexto(navegador).new_page())
                 for b in busquedas:
                     self.procesar_busqueda(portales, b)
                 self.revisar_seguidos(portales)
@@ -408,6 +456,11 @@ class Robot:
                     self.errores.append(f"fichas: {e}")
                     traceback.print_exc()
                 navegador.close()
+            try:
+                self.alertar_relevamientos()
+            except Exception as e:
+                self.errores.append(f"relevamientos: {e}")
+                traceback.print_exc()
             if os.environ.get("SIN_EMAIL") != "1":
                 self.enviar_resumen()
             detalle = ", ".join(f"{k}: {v}" for k, v in self.resumen.items())

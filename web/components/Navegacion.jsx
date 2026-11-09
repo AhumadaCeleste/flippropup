@@ -6,6 +6,7 @@ const LINKS = [
   { href: "/buscar", texto: "Buscar" },
   { href: "/seguimientos", texto: "Mis seguimientos" },
   { href: "/busquedas", texto: "Búsquedas guardadas" },
+  { href: "/relevar", texto: "Relevar" },
 ];
 
 export default function Navegacion() {

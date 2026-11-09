@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { seguir, dejarDeSeguir, descartar } from "@/app/acciones";
 import { precio, diasDesde } from "@/lib/formato";
-import { nombrePortal } from "@/lib/filtros";
+import { origenAviso } from "@/lib/filtros";
 import BotonWhatsApp from "@/components/BotonWhatsApp";
 
 export default function Tarjeta({ p, seguido }) {
@@ -15,7 +15,7 @@ export default function Tarjeta({ p, seguido }) {
     <article className="tarjeta">
       <Link href={`/aviso/${p.id}`} className="foto">
         {p.foto_principal ? <img src={p.foto_principal} alt="" loading="lazy" /> : null}
-        <span className="chip portal">{nombrePortal(p.portal)}</span>
+        <span className="chip portal">{origenAviso(p)}</span>
       </Link>
       <div className="cuerpo">
         <div className="precio">{precio(p.precio, p.moneda)}</div>

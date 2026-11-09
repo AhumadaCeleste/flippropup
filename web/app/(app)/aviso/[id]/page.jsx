@@ -5,7 +5,7 @@ import { precio, variacion, porcentaje, diasDesde, fechaCorta } from "@/lib/form
 import { seguir, dejarDeSeguir, agregarNota, guardarObjetivo } from "@/app/acciones";
 import GraficoPrecios from "@/components/GraficoPrecios";
 import SelectorEstado from "@/components/SelectorEstado";
-import { nombrePortal } from "@/lib/filtros";
+import { origenAviso } from "@/lib/filtros";
 import BotonWhatsApp, { telefonoVisible } from "@/components/BotonWhatsApp";
 import MapaResultados from "@/components/MapaResultados";
 
@@ -38,7 +38,7 @@ export default async function Aviso({ params }) {
             <form action={seguir.bind(null, p.id)}><button className="btn btn-principal">☆ Seguir</button></form>
           )}
           <BotonWhatsApp p={p} chico={false} />
-          <a className="btn" href={p.url} target="_blank" rel="noopener noreferrer">Ver en {nombrePortal(p.portal)}</a>
+          <a className="btn" href={p.url} target="_blank" rel="noopener noreferrer">Ver en {origenAviso(p)}</a>
         </div>
       </div>
 

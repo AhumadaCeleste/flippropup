@@ -148,3 +148,11 @@ td .mini { width: 88px; height: 60px; object-fit: cover; border-radius: var(--ra
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--base-deep); color: var(--text); }
 .leaflet-popup-content a { color: var(--accent); }
 .leaflet-container { background: var(--base-deepest); font-family: inherit; }
+
+/* ---------- relevar ---------- */
+.resultado-relevar { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--base-deepest); color: var(--text); text-decoration: none; }
+.resultado-relevar:hover { border-color: var(--accent); }
+.resultado-relevar img, .resultado-relevar .sin-foto { width: 96px; height: 68px; object-fit: cover; border-radius: var(--radius-sm); background: var(--base); display: block; }
+.resultado-relevar .titulo-corto { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bloque-relevar { display: grid; gap: 8px; }
+button:disabled { opacity: .55; cursor: not-allowed; }

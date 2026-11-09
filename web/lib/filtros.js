@@ -17,8 +17,11 @@ export const PORTALES = [
   { valor: "mercadolibre", etiqueta: "Mercado Libre" },
   { valor: "inmoup", etiqueta: "InmoUP" },
   { valor: "cordobaprop", etiqueta: "CórdobaProp" },
+  { valor: "inmobiliarias", etiqueta: "Inmobiliarias" },
 ];
 export const nombrePortal = (v) => PORTALES.find((x) => x.valor === v)?.etiqueta || v;
+// Para mostrar de dónde viene un aviso: en "Inmobiliarias" va el nombre de la inmobiliaria.
+export const origenAviso = (p) => (p?.portal === "inmobiliarias" && p.vendedor_nombre ? p.vendedor_nombre : nombrePortal(p?.portal));
 export const PALABRAS_SUGERIDAS = ["a reciclar", "a refaccionar", "oportunidad", "sucesión", "dueño vende", "urgente"];
 export const ESTADOS = ["Interesa", "Contactado", "Visitado", "Ofertado", "Descartado", "Comprado"];
 

@@ -1,9 +1,9 @@
 // Botón para escribirle por WhatsApp a quien publicó. El ícono es un globo de chat genérico.
-import { nombrePortal } from "@/lib/filtros";
+import { origenAviso } from "@/lib/filtros";
 
 export function enlaceWhatsApp(p) {
   if (!p?.telefono) return null;
-  const texto = `Hola, vi tu publicación "${p.titulo || "propiedad"}" en ${nombrePortal(p.portal)} (${p.url}). ¿Sigue disponible?`;
+  const texto = `Hola, vi tu publicación "${p.titulo || "propiedad"}" en ${origenAviso(p)} (${p.url}). ¿Sigue disponible?`;
   return `https://wa.me/${p.telefono}?text=${encodeURIComponent(texto)}`;
 }
 

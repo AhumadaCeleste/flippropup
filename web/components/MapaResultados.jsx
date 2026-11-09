@@ -3,8 +3,8 @@
 import { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
 
-const COLORES = { lavoz: "#38BDF8", mercadolibre: "#FACC15", inmoup: "#C084FC", cordobaprop: "#FB923C" };
-const NOMBRES = { lavoz: "La Voz", mercadolibre: "Mercado Libre", inmoup: "InmoUP", cordobaprop: "CórdobaProp" };
+const COLORES = { lavoz: "#38BDF8", mercadolibre: "#FACC15", inmoup: "#C084FC", cordobaprop: "#FB923C", inmobiliarias: "#F472B6" };
+const NOMBRES = { lavoz: "La Voz", mercadolibre: "Mercado Libre", inmoup: "InmoUP", cordobaprop: "CórdobaProp", inmobiliarias: "Inmobiliarias" };
 
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const precio = (p, m) => (p == null ? "Consultar" : `${m === "USD" ? "U$S" : "$"} ${Math.round(p).toLocaleString("es-AR")}`);
