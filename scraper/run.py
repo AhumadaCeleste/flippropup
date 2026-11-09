@@ -8,6 +8,7 @@
 
 Variables de entorno (se cargan como Secrets en GitHub):
   SUPABASE_URL, SUPABASE_SERVICE_KEY, GMAIL_USUARIO, GMAIL_CLAVE_APP, SITIO_URL
+Email (uno alcanza): EMAIL_WEBHOOK (cartero de Apps Script), BREVO_API_KEY o GMAIL_CLAVE_APP.
 Opcionales: BUSQUEDA_ID (correr solo una), SIN_EMAIL=1, MAX_PAGINAS (por defecto 10),
   PRUEBA_EMAIL=1 (solo manda un email de prueba, sin buscar), BREVO_API_KEY y BREVO_REMITENTE
 """
@@ -462,14 +463,20 @@ class Robot:
                 self.errores.append(f"relevamientos: {e}")
                 traceback.print_exc()
             if os.environ.get("SIN_EMAIL") != "1":
-                self.enviar_resumen()
+                try:
+                    self.enviar_resumen()
+                except Exception as e:
+                    # Lo buscado ya quedó guardado y las novedades siguen pendientes: se mandan en la próxima corrida.
+                    self.errores.append(f"email: {e}")
+                    print(f"::warning title=No se pudo mandar el email::{str(e)[:400]}")
+                    traceback.print_exc()
             detalle = ", ".join(f"{k}: {v}" for k, v in self.resumen.items())
             if self.errores:
                 detalle += " · errores: " + " | ".join(self.errores)
             estado = "ok" if not self.errores else "error"
             self.sb.table("ejecuciones").update({"fin": ahora(), "estado": estado, "detalle": detalle[:3000]}).eq("id", ej).execute()
             print("Listo ·", detalle)
-            if self.errores and not self.resumen["avisos"]:
+            if self.errores and not self.resumen["avisos"] and self.resumen["busquedas"]:
                 raise RuntimeError("Ningún portal devolvió avisos: " + " | ".join(self.errores))
         except Exception:
             self.sb.table("ejecuciones").update({"fin": ahora(), "estado": "error",

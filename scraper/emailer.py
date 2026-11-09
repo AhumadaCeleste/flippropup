@@ -149,8 +149,42 @@ def _enviar_brevo(destinatarios, asunto, html):
         raise RuntimeError(f"Brevo rechazó el envío ({e.code}): {e.read().decode('utf-8', 'replace')[:500]}") from e
 
 
+def _enviar_apps_script(destinatarios, asunto, html):
+    """Envío por el "cartero" de Google Apps Script (scraper/cartero-apps-script.gs).
+    EMAIL_WEBHOOK es la URL de la app web con ?clave=... al final. Usa la cuota de Gmail
+    de la cuenta que publicó el script y no necesita SMTP ni contraseñas de aplicación."""
+    url = os.environ["EMAIL_WEBHOOK"].strip()
+    cuerpo = json.dumps({"para": destinatarios, "asunto": asunto, "html": html,
+                         "texto": TEXTO_PLANO}).encode("utf-8")
+    pedido = urllib.request.Request(url, data=cuerpo, method="POST",
+                                    headers={"content-type": "application/json"})
+    try:
+        with urllib.request.urlopen(pedido, timeout=90) as r:  # Google redirige; urllib sigue la redirección
+            respuesta = r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"El cartero de Apps Script respondió {e.code}: {e.read().decode('utf-8', 'replace')[:300]}") from e
+    try:
+        datos = json.loads(respuesta)
+    except ValueError:
+        raise RuntimeError(f"El cartero de Apps Script no respondió JSON (¿está publicado para 'Cualquier persona'?): {respuesta[:300]}")
+    if not datos.get("ok"):
+        raise RuntimeError(f"El cartero de Apps Script rechazó el envío: {datos.get('error')}")
+    print(f"Email enviado por Apps Script (cuota restante hoy: {datos.get('cuota', '?')}).")
+
+
+def configurado():
+    return any(os.environ.get(k, "").strip() for k in ("EMAIL_WEBHOOK", "BREVO_API_KEY", "GMAIL_CLAVE_APP"))
+
+
 def enviar(destinatarios, asunto, html):
-    """Usa Brevo si está configurado; si no, Gmail. Si Brevo falla, intenta con Gmail."""
+    """Orden: cartero de Apps Script, Brevo, Gmail. Si uno falla, prueba el siguiente que esté configurado."""
+    if os.environ.get("EMAIL_WEBHOOK", "").strip():
+        try:
+            return _enviar_apps_script(destinatarios, asunto, html)
+        except Exception as e:
+            if not (os.environ.get("BREVO_API_KEY", "").strip() or os.environ.get("GMAIL_CLAVE_APP", "").strip()):
+                raise
+            print(f"Apps Script falló ({e}); pruebo con el siguiente método.")
     if os.environ.get("BREVO_API_KEY", "").strip():
         try:
             return _enviar_brevo(destinatarios, asunto, html)

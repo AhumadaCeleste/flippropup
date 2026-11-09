@@ -50,5 +50,6 @@ jobs:
           BUSQUEDA_ID: ${{ inputs.busqueda_id }}
           SIN_EMAIL: ${{ inputs.sin_email }}
           PRUEBA_EMAIL: ${{ inputs.prueba_email }}
+          EMAIL_WEBHOOK: ${{ secrets.EMAIL_WEBHOOK }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
           BREVO_REMITENTE: ${{ secrets.BREVO_REMITENTE }}

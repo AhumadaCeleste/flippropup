@@ -6,7 +6,7 @@ import { seguir, dejarDeSeguir, agregarNota, guardarObjetivo } from "@/app/accio
 import GraficoPrecios from "@/components/GraficoPrecios";
 import SelectorEstado from "@/components/SelectorEstado";
 import { origenAviso } from "@/lib/filtros";
-import BotonWhatsApp, { telefonoVisible } from "@/components/BotonWhatsApp";
+import BotonWhatsApp, { telefonoVisible, telefonoDe } from "@/components/BotonWhatsApp";
 import MapaResultados from "@/components/MapaResultados";
 
 export default async function Aviso({ params }) {
@@ -37,7 +37,7 @@ export default async function Aviso({ params }) {
           ) : (
             <form action={seguir.bind(null, p.id)}><button className="btn btn-principal">☆ Seguir</button></form>
           )}
-          <BotonWhatsApp p={p} chico={false} />
+          <BotonWhatsApp p={p} chico={false} siempre />
           <a className="btn" href={p.url} target="_blank" rel="noopener noreferrer">Ver en {origenAviso(p)}</a>
         </div>
       </div>
@@ -74,7 +74,7 @@ export default async function Aviso({ params }) {
               <dt>Apto escritura</dt><dd>{p.apto_escritura || "—"}</dd>
               <dt>Apto crédito</dt><dd>{p.apto_credito || "—"}</dd>
               <dt>Vendedor</dt><dd>{p.vendedor_tipo}{p.vendedor_nombre ? ` · ${p.vendedor_nombre}` : ""}</dd>
-              <dt>Teléfono</dt><dd>{p.telefono ? <a href={`tel:+${p.telefono}`}>{telefonoVisible(p.telefono)}</a> : <span className="muted">Pedilo en el portal</span>}</dd>
+              <dt>Teléfono</dt><dd>{telefonoDe(p) ? <a href={`tel:+${telefonoDe(p)}`}>{telefonoVisible(telefonoDe(p))}</a> : <span className="muted">Pedilo en el portal</span>}</dd>
               <dt>Publicado</dt><dd>{dias !== null ? `hace ${dias} días` : "—"}</dd>
               <dt>Lo encontramos</dt><dd>{fechaCorta(p.primera_vez)}</dd>
             </dl>
