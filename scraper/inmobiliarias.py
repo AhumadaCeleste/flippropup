@@ -1,7 +1,7 @@
 """Webs propias de inmobiliarias de Córdoba hechas con Tokko Broker (todas tienen la misma estructura).
 
 Salió del sondeo del 08/11/2026: de las inmobiliarias que publican en La Voz, estas tienen web Tokko.
-Listado de venta: https://<sitio>/Venta?page=N (40 por página). Cada aviso es un <li prop-id="…"> con
+Listado de venta: https://<sitio>/Venta y las páginas siguientes /Venta?o=2,2&p=N (las pide al bajar). Cada aviso es un <li prop-id="…"> con
 enlace /p/<id>-<Tipo>-en-Venta-en-<Barrio>…, foto, m², ambientes, "Tipo en Venta en Barrio, Ciudad",
 dirección y precio ("USD180.000"). En la web se muestran juntas como "Inmobiliarias".
 """
@@ -28,15 +28,26 @@ SITIOS = {
 PAUSA = 1.2
 TIPOS = {"departamento": "departamento", "casa": "casa", "duplex": "casa", "ph": "casa", "terreno": "terreno", "lote": "terreno"}
 
-LEER = r"""() => [...document.querySelectorAll('li[prop-id]')].map(li => {
-  const t = (s) => { const e = li.querySelector(s); return e ? e.textContent.replace(/\s+/g, ' ').trim() : null; };
-  const a = li.querySelector('a[href*="/p/"]');
-  const img = li.querySelector('img.dest-img');
-  const valor = li.querySelector('.prop-valor-nro');
-  return {id: li.getAttribute('prop-id'), href: a ? a.href : null, tipoUb: t('.prop-desc-tipo-ub'), dir: t('.prop-desc-dir'),
-          m2: t('.prop-data div'), amb: t('.prop-data2 div'), foto: img ? img.getAttribute('src') : null,
-          precio: valor ? valor.childNodes[0].textContent.replace(/\s+/g, ' ').trim() : null};
-})"""
+LEER = r"""() => {
+  const t = (el, s) => { const e = el.querySelector(s); return e ? e.textContent.replace(/\s+/g, ' ').trim() : null; };
+  // Diseño 1: <li prop-id="…">
+  const d1 = [...document.querySelectorAll('li[prop-id]')].map(li => {
+    const a = li.querySelector('a[href*="/p/"]'); const img = li.querySelector('img.dest-img'); const v = li.querySelector('.prop-valor-nro');
+    return {id: li.getAttribute('prop-id'), href: a ? a.href : null, tipoUb: t(li, '.prop-desc-tipo-ub'), dir: t(li, '.prop-desc-dir'),
+            m2: t(li, '.prop-data div'), amb: t(li, '.prop-data2 div'), dorm: null, foto: img ? img.getAttribute('src') : null,
+            precio: v ? v.childNodes[0].textContent.replace(/\s+/g, ' ').trim() : null};
+  });
+  // Diseño 2: <a class="item" href="/p/…"> con .feat_property
+  const d2 = [...document.querySelectorAll('a.item[href*="/p/"]')].filter(a => a.querySelector('.feat_property')).map(a => {
+    const img = a.querySelector('img'); const alt = img ? (img.getAttribute('alt') || '').replace(/^Foto\s+/, '') : '';
+    const det = [...a.querySelectorAll('.prop_details li')].map(li => li.textContent.replace(/\s+/g, ' ').trim());
+    const dorm = (det.find(x => /dormitorio/i.test(x)) || '').match(/\d+/);
+    return {id: (a.getAttribute('href').match(/\/p\/(\d+)/) || [])[1], href: a.href, tipoUb: alt, dir: t(a, '.card-address'),
+            titulo: t(a, 'h4'), m2: det.find(x => /m²/.test(x)) || null, amb: null, dorm: dorm ? dorm[0] : null,
+            foto: img ? img.getAttribute('src') : null, precio: t(a, '.fp_price')};
+  });
+  return d1.concat(d2);
+}"""
 
 
 def _sin_acentos(t):
@@ -60,7 +71,7 @@ class Inmobiliarias:
             vistos, cantidad = set(), 0
             try:
                 for n in range(1, max_paginas + 1):
-                    url = f"{base}/Venta" + (f"?page={n}" if n > 1 else "")
+                    url = f"{base}/Venta" + (f"?o=2,2&p={n}" if n > 1 else "")  # así pide más avisos al bajar
                     resp = self.page.goto(url, wait_until="domcontentloaded", timeout=40000)
                     if resp is not None and resp.status >= 400:
                         break
@@ -96,22 +107,28 @@ def normalizar(x):
     tipo = TIPOS.get(_sin_acentos(m.group(1))) if m else None
     barrio = m.group(2).strip() if m else None
     ciudad = (m.group(3).strip() if m else "") or None
-    if ciudad and _sin_acentos(ciudad) in ("cordoba capital", "capital", "cordoba"):
+    if ciudad and (_sin_acentos(ciudad).startswith("cordoba capital") or _sin_acentos(ciudad) in ("capital", "cordoba")):
         ciudad = "Córdoba"
+    elif ciudad:
+        ciudad = ciudad.split(" ")[0]
     pm = re.search(r"(USD|U\$S|\$)\s*([\d.]+)", x.get("precio") or "")
     precio = float(pm.group(2).replace(".", "")) if pm else None
     moneda = ("USD" if "U" in pm.group(1) else "ARS") if pm else None
-    sup = re.search(r"([\d.,]+)\s*m", x.get("m2") or "")
+    sup = re.search(r"([\d.,]+)\s*m²", x.get("m2") or "") or re.search(r"([\d.,]+)\s*m", x.get("m2") or "")
     try:
         superficie = float(sup.group(1).replace(".", "").replace(",", ".")) if sup else None
     except ValueError:
         superficie = None
+    superficie = superficie or None  # algunas webs informan 0 m²
     amb = re.search(r"\d+", x.get("amb") or "")
     dormitorios = None
-    if amb and tipo != "terreno":
+    if x.get("dorm") and tipo != "terreno":
+        n = int(x["dorm"])
+        dormitorios = "Monoambiente" if n == 0 else "4 Dormitorios o más" if n >= 4 else f"{n} Dormitorio{'s' if n > 1 else ''}"
+    elif amb and tipo != "terreno":
         n = int(amb.group(0)) - 1  # estimado: ambientes menos el living
         dormitorios = "Monoambiente" if n <= 0 else "4 Dormitorios o más" if n >= 4 else f"{n} Dormitorio{'s' if n > 1 else ''}"
-    titulo = " · ".join(t for t in [tipo_ub.split(",")[0], x.get("dir")] if t and t != "-")
+    titulo = x.get("titulo") or " · ".join(t for t in [tipo_ub.split(",")[0], x.get("dir")] if t and t != "-")
     return {
         "portal": "inmobiliarias",
         "portal_id": f"tokko-{x['id']}",
