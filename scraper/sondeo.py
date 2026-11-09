@@ -41,6 +41,6 @@ with sync_playwright() as pw:
         p.close()
         for k in plataformas or ["ninguna/otra"]:
             resumen[k] += 1
-        print(f"== WEB {n[:40]:40s} · {d:32s} · avisos {doms[d]:3d} · {estado} · {','.join(plataformas) or '-'} · enlaces a fichas {fichas}")
+        print(f"== WEB {nombre[d][:40]:40s} · {d:32s} · avisos {doms[d]:3d} · {estado} · {','.join(plataformas) or '-'} · enlaces a fichas {fichas}")
     print("== RESUMEN plataformas:", dict(resumen.most_common()))
     nav.close()
