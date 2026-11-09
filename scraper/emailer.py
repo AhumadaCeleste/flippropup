@@ -82,7 +82,7 @@ def armar_html(grupos, sitio, fecha_txt):
  {cuerpo}
  </table>
  <p style="font-family:Arial,sans-serif;color:{MUTED};font-size:12px;margin-top:24px">
-  Lo enviamos todos los días a las 8:00. Para cambiar qué buscamos, entrá a <a href="{escape(sitio)}/busquedas" style="color:{ACENTO}">Búsquedas guardadas</a>.</p>
+  Lo enviamos todos los días a la mañana. Para cambiar qué buscamos, entrá a <a href="{escape(sitio)}/busquedas" style="color:{ACENTO}">Búsquedas guardadas</a>.</p>
 </td></tr></table></td></tr></table></body></html>"""
 
 
