@@ -17,9 +17,10 @@ export default function MapaResultados({ puntos, alto = 560, centro = null }) {
     import("leaflet").then(({ default: L }) => {
       if (cancelado || !caja.current) return;
       mapa = L.map(caja.current, { scrollWheelZoom: true }).setView(centro || [-31.4167, -64.1833], 13);
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      // Teselas de OpenStreetMap (sin clave). Se oscurecen con CSS (.mapa-oscuro) para el estilo de la marca.
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       }).addTo(mapa);
       const capas = [];
       puntos.forEach((p) => {
@@ -48,7 +49,7 @@ export default function MapaResultados({ puntos, alto = 560, centro = null }) {
 
   return (
     <div>
-      <div ref={caja} style={{ height: alto, borderRadius: 12, border: "1px solid var(--line)", overflow: "hidden" }} />
+      <div ref={caja} className="mapa-oscuro" style={{ height: alto, borderRadius: 12, border: "1px solid var(--line)", overflow: "hidden" }} />
       <div className="opciones" style={{ marginTop: 8, fontSize: 13 }}>
         {Object.entries(NOMBRES).map(([k, n]) => (
           <span key={k} className="muted" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>

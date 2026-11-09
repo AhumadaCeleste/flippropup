@@ -103,8 +103,8 @@ textarea { min-height: 72px; resize: vertical; }
 /* ---------- tarjetas de propiedades ---------- */
 .grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
 .tarjeta { background: var(--base-deep); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; }
-.tarjeta .foto { aspect-ratio: 16 / 10; background: var(--base-deepest); display: block; position: relative; }
-.tarjeta .foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tarjeta .foto { aspect-ratio: 16 / 10; background: var(--base-deepest); display: block; position: relative; overflow: hidden; }
+.tarjeta .foto img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .tarjeta .portal { position: absolute; left: 10px; top: 10px; }
 .tarjeta .cuerpo { padding: 16px; display: grid; gap: 6px; flex: 1; align-content: start; }
 .precio { font-size: 24px; line-height: 30px; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -156,3 +156,5 @@ td .mini { width: 88px; height: 60px; object-fit: cover; border-radius: var(--ra
 .resultado-relevar .titulo-corto { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bloque-relevar { display: grid; gap: 8px; }
 button:disabled { opacity: .55; cursor: not-allowed; }
+
+.mapa-oscuro .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.6); }
