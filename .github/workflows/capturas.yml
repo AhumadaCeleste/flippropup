@@ -1,0 +1,32 @@
+name: Capturas de la web
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  capturas:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: npm ci
+        working-directory: web
+      - run: mkdir -p web/app/login/demo && cp .github/capturas/demo.jsx web/app/login/demo/page.jsx
+      - run: (npx next dev -p 3000 > ../next.log 2>&1 &) && sleep 20 && curl -s -o /dev/null -w "%{http_code}\n" --max-time 180 http://localhost:3000/login/demo
+        working-directory: web
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ejemplo.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: demo
+      - run: pip install playwright==1.47.0 && python -m playwright install --with-deps chromium
+      - run: mkdir -p capturas && python .github/capturas/capturar.py
+      - name: Publicar capturas en la rama "capturas"
+        run: |
+          cd capturas
+          git init -q -b capturas && git add . 
+          git -c user.name="robot" -c user.email="robot@flippropup" commit -q -m "Capturas $(date -u +%F)"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" capturas
