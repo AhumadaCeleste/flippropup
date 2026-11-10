@@ -16,7 +16,7 @@ ACTOR = os.environ.get("MARKETPLACE_ACTOR", "apify~facebook-marketplace-scraper"
 MAX = int(os.environ.get("MARKETPLACE_MAX", "30"))
 URL_BUSQUEDA = os.environ.get(
     "MARKETPLACE_URL",
-    "https://www.facebook.com/marketplace/category/propertyforsale?latitude=-31.4167&longitude=-64.1833&radius=20&exact=false",
+    "https://www.facebook.com/marketplace/cordoba/propertyforsale",
 )
 
 
@@ -72,19 +72,27 @@ def _superficie(texto):
 
 def normalizar(x):
     precio = x.get("listing_price") or {}
-    formato = precio.get("formatted_amount") or ""
+    formato = precio.get("formatted_amount") or (x.get("formatted_price") or {}).get("text") or ""
+    monto = None
     try:
-        monto = float(precio.get("amount")) if precio.get("amount") is not None else None
+        if precio.get("amount") is not None:
+            monto = float(precio["amount"])
+        elif precio.get("amount_with_offset_in_currency") is not None:
+            monto = float(precio["amount_with_offset_in_currency"]) / 100
     except (TypeError, ValueError):
         monto = None
-    moneda = "USD" if ("US" in formato or "USD" in formato) else ("ARS" if monto else None)
+    if not monto:
+        digitos = re.sub(r"[^0-9]", "", formato)
+        monto = float(digitos) if digitos else None
+    moneda = "USD" if re.search(r"US\$|USD|U\$S|d[oó]lar", formato, re.I) else ("ARS" if monto else None)
     titulo = x.get("marketplace_listing_title") or x.get("custom_title") or ""
     subt = " ".join(s.get("subtitle", "") if isinstance(s, dict) else str(s)
                     for s in (x.get("custom_sub_titles_with_rendering_flags") or []))
     desc = (x.get("redacted_description") or {}).get("text") if isinstance(x.get("redacted_description"), dict) else x.get("description")
     texto = f"{titulo} {subt} {desc or ''}"
     geo = ((x.get("location") or {}).get("reverse_geocode") or {})
-    foto = ((x.get("primary_listing_photo") or {}).get("image") or {}).get("uri")
+    fp = x.get("primary_listing_photo") or {}
+    foto = (fp.get("image") or {}).get("uri") or fp.get("photo_image_url")
     vendedor = (x.get("marketplace_listing_seller") or {}).get("name")
     lat = (x.get("location") or {}).get("latitude")
     lng = (x.get("location") or {}).get("longitude")
