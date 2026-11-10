@@ -1,10 +1,17 @@
-"""Sondeo: qué devuelve Apify para Marketplace y cómo lo normalizamos."""
-import json
+"""Sondeo: qué URL de Marketplace respeta Córdoba en Apify."""
+import os
 import marketplace
 
-items = marketplace.traer(5)
-print("== cantidad:", len(items))
-for x in items[:3]:
-    print("== CRUDO:", json.dumps(x, ensure_ascii=False)[:2500])
-    p = marketplace.normalizar(x)
-    print("== NORMALIZADO:", {k: p[k] for k in ("portal_id", "titulo", "tipo", "ciudad", "precio", "moneda", "dormitorios", "superficie_total", "lat")})
+for url in ["https://www.facebook.com/marketplace/cordoba/propertyforsale/",
+            "https://www.facebook.com/marketplace/cordoba/search/?query=casa%20en%20venta",
+            "https://www.facebook.com/marketplace/cordoba/"]:
+    marketplace.URL_BUSQUEDA = url
+    os.environ["MARKETPLACE_PAIS_PROXY"] = ""
+    try:
+        items = marketplace.traer(3)
+    except Exception as e:
+        print("== ERROR", url, e); continue
+    print("== ", url, len(items))
+    for x in items:
+        p = marketplace.normalizar(x)
+        print("    ", p["ciudad"], "|", p["titulo"][:60], "|", p["precio"], p["moneda"], "|", p["tipo"])
