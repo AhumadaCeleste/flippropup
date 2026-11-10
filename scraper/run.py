@@ -24,7 +24,10 @@ from playwright.sync_api import sync_playwright
 from supabase import create_client
 
 import emailer
+import idecor
+import marketplace
 import telefonos
+from barrios import Barrios, bonito
 import cordobaprop as cp
 import inmobiliarias as inmo
 import inmoup
@@ -33,8 +36,26 @@ from lavoz import LaVoz, construir_consultas, normalizar
 
 ART = timezone(timedelta(hours=-3))
 MAX_PAGINAS = int(os.environ.get("MAX_PAGINAS", "10"))
+MAX_PAGINAS_BASE = int(os.environ.get("MAX_PAGINAS_BASE", "30"))  # la búsqueda base recorre más páginas
 ENRIQUECER_MAX = int(os.environ.get("ENRIQUECER_MAX", "120"))  # fichas a leer por corrida (ubicación y teléfono)
 PORTALES_CON_FICHA = ["cordobaprop", "inmobiliarias", "mercadolibre", "inmoup"]
+
+
+def fecha_desde_ficha(datos):
+    """'Publicado hace 3 meses' o 'Fecha de publicación: 12/05/2026' → fecha ISO."""
+    hoy = datetime.now(ART).date()
+    if datos.get("fecha"):
+        d, m, a = (int(x) for x in datos["fecha"])
+        try:
+            return datetime(a + 2000 if a < 100 else a, m, d).date().isoformat()
+        except ValueError:
+            return None
+    if datos.get("hace"):
+        n, unidad = datos["hace"]
+        n = 1 if n in ("un", "una") else int(n)
+        dias = n * (1 if unidad.startswith("d") else 7 if unidad.startswith("s") else 30 if unidad.startswith("m") else 365)
+        return (hoy - timedelta(days=dias)).isoformat()
+    return None
 
 # Lee de la ficha de un aviso las coordenadas y el teléfono (si el portal los muestra sin pedir clic).
 LEER_FICHA = r"""() => {
@@ -44,8 +65,12 @@ LEER_FICHA = r"""() => {
        || html.match(/"lat"\s*:\s*"?(-?\d+\.\d+)"?\s*,\s*"(?:lng|lon)"\s*:\s*"?(-?\d+\.\d+)/);
   const wa = html.match(/(?:wa\.me\/|api\.whatsapp\.com\/send\?phone=)\+?(\d{8,15})/);
   const tel = document.querySelector('a[href^="tel:"]');
+  const texto = document.body ? document.body.innerText : '';
+  const hace = texto.match(/[Pp]ublicad[oa] hace (\d+|un|una) (d[ií]as?|semanas?|mes(?:es)?|años?)/);
+  const fecha = texto.match(/[Ff]echa de publicaci[oó]n:?\s*(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
   return {lat: m ? Number(m[1]) : null, lng: m ? Number(m[2]) : null,
-          telefono: wa ? wa[1] : (tel ? tel.getAttribute('href').slice(4) : null)};
+          telefono: wa ? wa[1] : (tel ? tel.getAttribute('href').slice(4) : null),
+          hace: hace ? [hace[1], hace[2]] : null, fecha: fecha ? [fecha[1], fecha[2], fecha[3]] : null};
 }"""
 CAMPOS_ACTUALIZABLES = ["url", "titulo", "descripcion", "provincia", "ciudad", "barrio", "lat", "lng",
                         "superficie_total", "dormitorios", "banos", "vendedor_tipo", "vendedor_nombre",
@@ -75,6 +100,10 @@ def pasa_filtros_locales(p, f):
             return False
     if f.get("vendedor") == "particular" and p["vendedor_tipo"] and p["vendedor_tipo"] != "Particular":
         return False
+    if f.get("barrios_id") and p.get("barrio_id") not in [int(x) for x in f["barrios_id"]]:
+        return False
+    if f.get("zonas") and p.get("zona") not in f["zonas"]:
+        return False
     palabras = [sin_acentos(x) for x in (f.get("palabras") or []) if x.strip()]
     if palabras:
         texto = sin_acentos((p["titulo"] or "") + " " + (p["descripcion"] or ""))
@@ -83,7 +112,7 @@ def pasa_filtros_locales(p, f):
     return True
 
 
-PORTALES_POR_DEFECTO = ["lavoz", "mercadolibre", "inmoup", "cordobaprop", "inmobiliarias"]
+PORTALES_POR_DEFECTO = ["lavoz", "mercadolibre", "inmoup", "cordobaprop", "inmobiliarias", "marketplace"]
 
 
 # Las búsquedas guardadas antes de sumar Mercado Libre tienen ["lavoz"] porque era
@@ -108,7 +137,32 @@ class Robot:
         self.resumen = {"busquedas": 0, "avisos": 0, "nuevos": 0, "cambios": 0}
         self.errores = []
         self.tiene_contacto = self._columnas_contacto()
+        self.tiene_indices = self._columnas_indices()
+        self.barrios = Barrios()
         self._nombres = None
+        self.seguidos = {s["publicacion_id"] for s in self.sb.table("seguimientos").select("publicacion_id").execute().data}
+        self.avisar_cambios = True
+
+    def _columnas_indices(self):
+        """barrio_id, zona, publicado_desde, idecor_*, ref_*, puntaje: database/migraciones/2026-11-10-barrios-idecor-puntaje.sql."""
+        try:
+            self.sb.table("publicaciones").select("barrio_id,zona,publicado_desde,puntaje").limit(1).execute()
+            return True
+        except Exception:
+            print("Aviso: falta correr la migración 2026-11-10-barrios-idecor-puntaje.sql. Sigo sin barrios oficiales ni puntaje.")
+            return False
+
+    def ubicar(self, p):
+        """Barrio oficial y zona (ciudad de Córdoba)."""
+        b, origen = self.barrios.asignar(p)
+        p["barrio_id"], p["barrio_origen"], p["zona"] = (b["id"], origen, b["zona"]) if b else (None, None, None)
+        if b and not p.get("barrio"):
+            p["barrio"] = bonito(b["nombre"])
+        return p
+
+    def pasa(self, p, f):
+        self.ubicar(p)
+        return pasa_filtros_locales(p, f)
 
     # ---------- base de datos ----------
     def _columnas_contacto(self):
@@ -141,7 +195,8 @@ class Robot:
         if precio is None or antes is None or moneda != actual["moneda"] or abs(precio - antes) < 1:
             return False
         self.sb.table("historial_precios").insert({"publicacion_id": pub_id, "precio": precio, "moneda": moneda}).execute()
-        self.alerta(pub_id, "baja_precio" if precio < antes else "suba_precio", antes, precio)
+        if self.avisar_cambios or pub_id in self.seguidos:
+            self.alerta(pub_id, "baja_precio" if precio < antes else "suba_precio", antes, precio)
         self.revisar_objetivo(pub_id, precio)
         self.resumen["cambios"] += 1
         return True
@@ -150,10 +205,15 @@ class Robot:
         p = dict(p)
         if not self.tiene_contacto or not p.get("telefono"):
             p.pop("telefono", None)
+        if not self.tiene_indices or p.get("barrio_id") is None:
+            for k in ("barrio_id", "barrio_origen", "zona"):
+                p.pop(k, None)
         actual = (self.sb.table("publicaciones").select("id,precio,moneda,estado")
                   .eq("portal", p["portal"]).eq("portal_id", p["portal_id"]).execute().data)
         if not actual:
             fila = dict(p, primera_vez=ahora(), ultima_vez=ahora())
+            if self.tiene_indices:
+                fila["publicado_desde"] = p.get("fecha_publicacion") or datetime.now(ART).date().isoformat()
             pub_id = self.sb.table("publicaciones").insert(fila).execute().data[0]["id"]
             self.sb.table("historial_precios").insert({"publicacion_id": pub_id, "precio": p["precio"], "moneda": p["moneda"]}).execute()
             return pub_id, True
@@ -161,7 +221,12 @@ class Robot:
         cambios = {k: p[k] for k in CAMPOS_ACTUALIZABLES}
         if p.get("telefono"):
             cambios["telefono"] = p["telefono"]
-        for k in ("lat", "lng"):
+        for k in ("barrio_id", "barrio_origen", "zona"):
+            if p.get(k) is not None:
+                cambios[k] = p[k]
+        if self.tiene_indices and p.get("fecha_publicacion"):
+            cambios["publicado_desde"] = p["fecha_publicacion"]
+        for k in ("lat", "lng", "fecha_publicacion"):
             if cambios.get(k) is None:
                 cambios.pop(k, None)
         cambios.update(ultima_vez=ahora(), estado="activo")
@@ -197,28 +262,52 @@ class Robot:
             on_conflict="busqueda_id,publicacion_id", ignore_duplicates=True).execute()
         if es_nuevo:
             self.resumen["nuevos"] += 1
-            if not primera_vez:  # la primera vez no avisamos todo como "nuevo"
+            if not primera_vez and not b.get("sin_alertas"):  # la primera vez no avisamos todo como "nuevo"
                 self.alerta(pub_id, "nuevo", None, p["precio"], b["id"])
+
+    def paginas(self, b):
+        return MAX_PAGINAS_BASE if (b.get("filtros") or {}).get("base") else MAX_PAGINAS
+
+    def tids_lavoz(self, f):
+        """Barrios oficiales elegidos → ubicaciones de La Voz con el mismo nombre (para acotar su búsqueda)."""
+        if not f.get("barrios_id") or f.get("barrios_tid"):
+            return f
+        oficiales = {b["id"]: b["nombre"] for b in self.barrios.lista}
+        from barrios import norm
+        por_nombre = {norm(n): tid for tid, n in self.nombres_ubicaciones().items()}
+        tids = [por_nombre[norm(oficiales[i])] for i in map(int, f["barrios_id"]) if i in oficiales and norm(oficiales[i]) in por_nombre]
+        return dict(f, barrios_tid=tids) if tids else f
+
+    def buscar_marketplace(self, mp, b, primera_vez):
+        f = b["filtros"] or {}
+        nombres = self.nombres_ubicaciones()
+        validos = 0
+        for x in mp:
+            p = marketplace.normalizar(x)
+            if marketplace.coincide(p, f, nombres, ml.TEXTO_DORMITORIOS) and self.pasa(p, f):
+                self.registrar(b, p, p["tipo"], primera_vez)
+                validos += 1
+        print(f"  [{b['nombre']}] Marketplace · {validos} de {len(mp)} avisos pasan los filtros")
 
     def buscar_lavoz(self, lv, b, primera_vez):
         f = b["filtros"] or {}
-        for tipo, consulta in construir_consultas(f):
-            crudos = lv.buscar(consulta, MAX_PAGINAS)
+        for tipo, consulta in construir_consultas(self.tids_lavoz(f)):
+            crudos = lv.buscar(consulta, self.paginas(b))
             print(f"  [{b['nombre']}] La Voz · {tipo}: {len(crudos)} avisos · {consulta}")
             for a in crudos:
                 p = normalizar(a, tipo)
-                if pasa_filtros_locales(p, f):
+                if self.pasa(p, f):
                     self.registrar(b, p, tipo, primera_vez)
 
     def buscar_mercadolibre(self, mlp, b, primera_vez):
         f = b["filtros"] or {}
         nombres = self.nombres_ubicaciones()
         for tipo, dorm, url in ml.construir_consultas(f, nombres):
-            crudos = mlp.buscar(url, MAX_PAGINAS)
+            crudos = mlp.buscar(url, self.paginas(b))
             validos = 0
             for t in crudos:
                 p = ml.normalizar(t, tipo, dorm, f)
-                if p["portal_id"] and ml.coincide_ubicacion(p, f, nombres) and pasa_filtros_locales(p, f):
+                if p["portal_id"] and ml.coincide_ubicacion(p, f, nombres) and self.pasa(p, f):
                     self.registrar(b, p, tipo, primera_vez)
                     validos += 1
             print(f"  [{b['nombre']}] Mercado Libre · {tipo}: {len(crudos)} avisos, {validos} pasan los filtros · {url}")
@@ -227,11 +316,11 @@ class Robot:
         f = b["filtros"] or {}
         nombres = self.nombres_ubicaciones()
         ciudad = nombres.get(f.get("ciudad_tid")) or "Córdoba"
-        crudos = iu.todos(ciudad, MAX_PAGINAS * 2)
+        crudos = iu.todos(ciudad, self.paginas(b) * 2)
         validos = 0
         for a in crudos:
             p = inmoup.normalizar(a, ciudad)
-            if inmoup.coincide(p, f, nombres, ml.TEXTO_DORMITORIOS) and pasa_filtros_locales(p, f):
+            if inmoup.coincide(p, f, nombres, ml.TEXTO_DORMITORIOS) and self.pasa(p, f):
                 self.registrar(b, p, p["tipo"], primera_vez)
                 validos += 1
         print(f"  [{b['nombre']}] InmoUP · {validos} de {len(crudos)} avisos pasan los filtros")
@@ -240,11 +329,11 @@ class Robot:
         f = b["filtros"] or {}
         nombres = self.nombres_ubicaciones()
         for tipo, dorm, url in cpp.construir_consultas(f, nombres):
-            crudos = cpp.buscar(url, MAX_PAGINAS * 2)
+            crudos = cpp.buscar(url, self.paginas(b) * 2)
             validos = 0
             for t in crudos:
                 p = cp.normalizar(t, tipo, dorm, ml.TEXTO_DORMITORIOS)
-                if p["portal_id"] and cp.coincide_ubicacion(p, f, nombres) and pasa_filtros_locales(p, f):
+                if p["portal_id"] and cp.coincide_ubicacion(p, f, nombres) and self.pasa(p, f):
                     self.registrar(b, p, tipo, primera_vez)
                     validos += 1
             print(f"  [{b['nombre']}] CórdobaProp · {tipo}: {len(crudos)} avisos, {validos} pasan los filtros · {url}")
@@ -252,11 +341,13 @@ class Robot:
     def buscar_inmobiliarias(self, im, b, primera_vez):
         f = b["filtros"] or {}
         nombres = self.nombres_ubicaciones()
-        crudos = im.todos(MAX_PAGINAS)
+        if getattr(self, "_inmo", None) is None:  # se descargan una sola vez por corrida
+            self._inmo = im.todos(MAX_PAGINAS)
+        crudos = self._inmo
         validos = 0
         for x in crudos:
             p = inmo.normalizar(x)
-            if inmo.coincide(p, f, nombres, ml.TEXTO_DORMITORIOS) and pasa_filtros_locales(p, f):
+            if inmo.coincide(p, f, nombres, ml.TEXTO_DORMITORIOS) and self.pasa(p, f):
                 self.registrar(b, p, p["tipo"], primera_vez)
                 validos += 1
         print(f"  [{b['nombre']}] Inmobiliarias (webs Tokko) · {validos} de {len(crudos)} avisos pasan los filtros")
@@ -264,9 +355,11 @@ class Robot:
     def procesar_busqueda(self, portales, b):
         f = b["filtros"] or {}
         primera_vez = b["ultima_ejecucion"] is None
+        # La búsqueda base solo avisa cambios de precio de los avisos que seguís.
+        self.avisar_cambios = not b.get("sin_alertas")
         for nombre, buscador in (("lavoz", self.buscar_lavoz), ("mercadolibre", self.buscar_mercadolibre),
                                  ("inmoup", self.buscar_inmoup), ("cordobaprop", self.buscar_cordobaprop),
-                                 ("inmobiliarias", self.buscar_inmobiliarias)):
+                                 ("inmobiliarias", self.buscar_inmobiliarias), ("marketplace", self.buscar_marketplace)):
             if nombre not in portales_de(f, b) or portales.get(nombre) is None:
                 continue
             try:
@@ -277,6 +370,7 @@ class Robot:
                 traceback.print_exc()
         self.sb.table("busquedas").update({"ultima_ejecucion": ahora()}).eq("id", b["id"]).execute()
         self.resumen["busquedas"] += 1
+        self.avisar_cambios = True
 
     def revisar_seguidos(self, portales):
         seguidos = (self.sb.table("seguimientos")
@@ -324,6 +418,11 @@ class Robot:
             if lat and lng and -56 < lat < -21 and -74 < lng < -53 and p.get("lat") is None:
                 cambios.update(lat=lat, lng=lng)
                 con_lugar += 1
+            if self.tiene_indices:
+                fecha = fecha_desde_ficha(datos)
+                if fecha:
+                    cambios["fecha_publicacion"] = fecha
+                    cambios["publicado_desde"] = fecha
             if self.tiene_contacto:
                 tel = telefonos.normalizar(datos.get("telefono") or "")
                 if tel and not p.get("telefono"):
@@ -369,10 +468,20 @@ class Robot:
     def enviar_resumen(self):
         pendientes = (self.sb.table("alertas").select("*, publicaciones(*)")
                       .eq("enviada", False).order("fecha").execute().data)
-        if not pendientes:
+        grupos = {}
+        if self.tiene_indices:
+            desde = (datetime.now(timezone.utc) - timedelta(hours=26)).isoformat()
+            top = (self.sb.table("publicaciones").select("*").eq("estado", "activo").gte("primera_vez", desde)
+                   .gte("puntaje", 65).order("puntaje", desc=True).limit(10).execute().data)
+            for p in top:
+                extra = f'<span style="font-size:14px;color:{emailer.ACENTO}">Puntaje {p["puntaje"]}'
+                if p.get("ref_m2") and p.get("precio_m2"):
+                    dif = (float(p["precio_m2"]) / float(p["ref_m2"]) - 1) * 100
+                    extra += f' · {abs(dif):.0f} % {"abajo" if dif < 0 else "arriba"} del m² de la zona'.replace(".", ",")
+                grupos.setdefault("oportunidad", []).append((p, extra + "</span>"))
+        if not pendientes and not grupos:
             print("Sin novedades: no se envía email.")
             return
-        grupos = {}
         for a in pendientes:
             p = a["publicaciones"]
             if not p:
@@ -386,7 +495,7 @@ class Robot:
             grupos.setdefault(a["tipo"], []).append((p, extra))
         destinatarios = [u["email"] for u in self.sb.table("usuarios_habilitados").select("email").execute().data]
         hoy = datetime.now(ART)
-        total = len(pendientes)
+        total = len(pendientes) + len(grupos.get("oportunidad", []))
         asunto = f"Flip PropUp · {total} novedad{'es' if total != 1 else ''} · {hoy:%d/%m}"
         html = emailer.armar_html(grupos, os.environ.get("SITIO_URL", "").rstrip("/"), f"Novedades del {hoy:%d/%m/%Y}")
         emailer.enviar(destinatarios, asunto, html)
@@ -403,6 +512,86 @@ class Robot:
         emailer.enviar(destinatarios, f"Flip PropUp · prueba de email · {hoy:%d/%m %H:%M}", html)
         print(f"Prueba enviada a {', '.join(destinatarios)}.")
 
+    def marketplace_hoy(self):
+        desde = (datetime.now(timezone.utc) - timedelta(hours=20)).isoformat()
+        return bool(self.sb.table("publicaciones").select("id").eq("portal", "marketplace")
+                    .gte("ultima_vez", desde).limit(1).execute().data)
+
+    def _actualizar(self, filas):
+        for i in range(0, len(filas), 400):
+            self.sb.rpc("actualizar_publicaciones", {"filas": filas[i:i + 400]}).execute()
+
+    def _todas(self, campos, filtro=None, maximo=20000):
+        filas, desde = [], 0
+        while desde < maximo:
+            q = self.sb.table("publicaciones").select(campos).eq("estado", "activo")
+            if filtro:
+                q = filtro(q)
+            lote = q.order("id").range(desde, desde + 999).execute().data
+            filas += lote
+            if len(lote) < 1000:
+                break
+            desde += 1000
+        return filas
+
+    def completar_barrios(self):
+        """Barrio oficial y zona para los avisos guardados que todavía no los tienen."""
+        if not self.tiene_indices:
+            return
+        pendientes = self._todas("id,lat,lng,ciudad,barrio,titulo,descripcion", lambda q: q.is_("barrio_id", "null"))
+        filas = []
+        for p in pendientes:
+            b, origen = self.barrios.asignar(p)
+            if b:
+                filas.append({"id": p["id"], "barrio_id": b["id"], "barrio_origen": origen, "zona": b["zona"]})
+        self._actualizar(filas)
+        print(f"Barrios oficiales: {len(filas)} de {len(pendientes)} avisos sin barrio quedaron ubicados")
+
+    def calcular_idecor(self):
+        """Índice IDECOR para casas (ofertas OMI cercanas) y terrenos (valor de la tierra de la parcela)."""
+        if not self.tiene_indices:
+            return
+        hace_una_semana = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        campos = "id,tipo,lat,lng,barrio_id,idecor_en"
+        pendientes = [p for p in self._todas(campos, lambda q: q.in_("tipo", ["casa", "terreno"]).eq("moneda", "USD"))
+                      if not p.get("idecor_en") or p["idecor_en"] < hace_una_semana]
+        if not pendientes:
+            print("IDECOR: nada pendiente")
+            return
+        centros = {b["id"]: (b["lat"], b["lng"]) for b in self.barrios.lista}
+        indice = idecor.IndiceCasas(idecor.ofertas_omi())
+        filas, terrenos = [], 0
+        for p in pendientes:
+            lat, lng, del_barrio = p.get("lat"), p.get("lng"), False
+            if lat is None and p.get("barrio_id") in centros:
+                (lat, lng), del_barrio = centros[p["barrio_id"]], True
+            if lat is None:
+                continue
+            fila = {"id": p["id"], "idecor_en": True}
+            if p["tipo"] == "casa":
+                r = indice.valor(float(lat), float(lng), del_barrio)
+                if r:
+                    fila.update(idecor_m2=r[0], idecor_n=r[1], idecor_base=r[2])
+            elif p["tipo"] == "terreno" and terrenos < 200:
+                terrenos += 1
+                try:
+                    r = idecor.vut_parcela(float(lat), float(lng))
+                except Exception as e:
+                    print(f"  IDECOR VUT no respondió: {e}")
+                    r = None
+                if r:
+                    fila.update(idecor_m2=r[0], idecor_n=1, idecor_parcela=r[1],
+                                idecor_base="Valor de la tierra 2025" + (" (centro del barrio)" if del_barrio else " de la parcela"))
+            filas.append(fila)
+        self._actualizar(filas)
+        con = sum(1 for f in filas if "idecor_m2" in f)
+        print(f"IDECOR: {indice.total} ofertas OMI · {con} de {len(pendientes)} casas/terrenos con índice")
+
+    def recalcular(self):
+        if self.tiene_indices:
+            n = self.sb.rpc("recalcular_referencias", {}).execute().data
+            print(f"Referencia de mercado y puntaje recalculados en {n} avisos")
+
     def correr(self):
         ej = self.sb.table("ejecuciones").insert({"estado": "corriendo"}).execute().data[0]["id"]
         try:
@@ -410,6 +599,8 @@ class Robot:
             if os.environ.get("BUSQUEDA_ID"):
                 q = q.eq("id", os.environ["BUSQUEDA_ID"])
             busquedas = q.execute().data
+            # Primero las tuyas (con alertas) y al final la base, así un cambio de precio se avisa una sola vez.
+            busquedas.sort(key=lambda b: bool(b.get("sin_alertas")))
             with sync_playwright() as pw:
                 navegador = pw.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
                 contexto = navegador.new_context(locale="es-AR", viewport={"width": 1366, "height": 900})
@@ -448,6 +639,16 @@ class Robot:
                         traceback.print_exc()
                 if any("inmobiliarias" in portales_de(b["filtros"] or {}, b) for b in busquedas):
                     portales["inmobiliarias"] = inmo.Inmobiliarias(ml.nuevo_contexto(navegador).new_page())
+                if marketplace.disponible() and any("marketplace" in portales_de(b["filtros"] or {}, b) for b in busquedas):
+                    try:
+                        if self.marketplace_hoy():
+                            print("Marketplace: ya se trajo en las últimas 20 horas, no se vuelve a pedir (cuesta por aviso).")
+                        else:
+                            portales["marketplace"] = marketplace.traer()
+                            print(f"Marketplace: {len(portales['marketplace'])} avisos traídos de Apify")
+                    except Exception as e:
+                        self.errores.append(f"marketplace: {e}")
+                        traceback.print_exc()
                 for b in busquedas:
                     self.procesar_busqueda(portales, b)
                 self.revisar_seguidos(portales)
@@ -457,6 +658,13 @@ class Robot:
                     self.errores.append(f"fichas: {e}")
                     traceback.print_exc()
                 navegador.close()
+            for paso, funcion in (("barrios", self.completar_barrios), ("idecor", self.calcular_idecor),
+                                  ("referencias", self.recalcular)):
+                try:
+                    funcion()
+                except Exception as e:
+                    self.errores.append(f"{paso}: {e}")
+                    traceback.print_exc()
             try:
                 self.alertar_relevamientos()
             except Exception as e:

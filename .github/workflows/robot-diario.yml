@@ -25,7 +25,7 @@ concurrency:
 jobs:
   robot:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 120
     defaults:
       run:
         working-directory: scraper
@@ -51,5 +51,6 @@ jobs:
           SIN_EMAIL: ${{ inputs.sin_email }}
           PRUEBA_EMAIL: ${{ inputs.prueba_email }}
           EMAIL_WEBHOOK: ${{ secrets.EMAIL_WEBHOOK }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
           BREVO_REMITENTE: ${{ secrets.BREVO_REMITENTE }}

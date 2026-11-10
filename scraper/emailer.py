@@ -65,7 +65,8 @@ def armar_html(grupos, sitio, fecha_txt):
         return [_tarjeta(p, sitio, extra) for p, extra in grupos.get(clave, [])[:limite]]
 
     cuerpo = (
-        _bloque("Cerca de lugares que relevaste", filas("cerca_relevamiento"))
+        _bloque("Mejores oportunidades nuevas", filas("oportunidad"))
+        + _bloque("Cerca de lugares que relevaste", filas("cerca_relevamiento"))
         + _bloque("Llegaron a tu precio objetivo", filas("precio_objetivo"))
         + _bloque("Bajaron de precio", filas("baja_precio"))
         + _bloque("Nuevos", filas("nuevo"))
