@@ -32,7 +32,13 @@ def traer(maximo=MAX):
     token = os.environ["APIFY_TOKEN"].strip()
     url = (f"https://api.apify.com/v2/acts/{ACTOR}/run-sync-get-dataset-items"
            f"?token={token}&timeout=600&format=json&clean=true")
-    cuerpo = json.dumps({"startUrls": [{"url": URL_BUSQUEDA}], "resultsLimit": maximo}).encode()
+    entrada = {"startUrls": [{"url": URL_BUSQUEDA}], "resultsLimit": maximo}
+    # Facebook decide la ciudad por el IP: se pide un proxy de Argentina.
+    pais = os.environ.get("MARKETPLACE_PAIS_PROXY", "AR")
+    if pais:
+        grupos = [g for g in os.environ.get("MARKETPLACE_GRUPO_PROXY", "RESIDENTIAL").split(",") if g]
+        entrada["proxyConfiguration"] = {"useApifyProxy": True, "apifyProxyGroups": grupos, "apifyProxyCountry": pais}
+    cuerpo = json.dumps(entrada).encode()
     pedido = urllib.request.Request(url, data=cuerpo, method="POST", headers={"content-type": "application/json"})
     try:
         with urllib.request.urlopen(pedido, timeout=660) as r:
