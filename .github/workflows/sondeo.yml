@@ -12,5 +12,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt && python -m playwright install --with-deps chromium
+      - run: pip install -r requirements.txt 
       - run: python sondeo.py
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
