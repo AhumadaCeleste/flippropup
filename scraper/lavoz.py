@@ -89,7 +89,24 @@ class LaVoz:
         from urllib.parse import quote
         avisos, pagina = [], 1
         while pagina <= max_paginas:
-            data = self._get_json(f"/api/search?page={pagina}&filters={quote(filtros_api)}")
+            data = None
+            for intento in range(4):
+                try:
+                    data = self._get_json(f"/api/search?page={pagina}&filters={quote(filtros_api)}")
+                    break
+                except Exception as e:
+                    # Cloudflare a veces corta después de muchas páginas: espera, vuelve a entrar y reintenta.
+                    print(f"    La Voz página {pagina}: {str(e)[:80]} · reintento {intento + 1}")
+                    time.sleep(15 * (intento + 1))
+                    try:
+                        self.abrir()
+                    except Exception:
+                        pass
+            if data is None:
+                if avisos:
+                    print(f"    La Voz: me quedo con {len(avisos)} avisos de {pagina - 1} páginas")
+                    break
+                raise RuntimeError("La Voz no respondió después de varios intentos")
             res = data.get("data", {}).get("results", {})
             avisos += res.get("data", [])
             ultima = (res.get("meta") or {}).get("last_page") or 1
