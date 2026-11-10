@@ -266,7 +266,12 @@ class Robot:
                 self.alerta(pub_id, "nuevo", None, p["precio"], b["id"])
 
     def paginas(self, b):
-        return MAX_PAGINAS_BASE if (b.get("filtros") or {}).get("base") else MAX_PAGINAS
+        """La búsqueda base recorre a fondo la primera vez y los lunes; el resto de los días, solo lo más nuevo."""
+        if not (b.get("filtros") or {}).get("base"):
+            return MAX_PAGINAS
+        if b.get("ultima_ejecucion") is None or datetime.now(ART).weekday() == 0:
+            return MAX_PAGINAS_BASE
+        return MAX_PAGINAS
 
     def tids_lavoz(self, f):
         """Barrios oficiales elegidos → ubicaciones de La Voz con el mismo nombre (para acotar su búsqueda)."""
