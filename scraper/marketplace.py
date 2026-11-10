@@ -14,10 +14,13 @@ import urllib.request
 
 ACTOR = os.environ.get("MARKETPLACE_ACTOR", "apify~facebook-marketplace-scraper")
 MAX = int(os.environ.get("MARKETPLACE_MAX", "30"))
-URL_BUSQUEDA = os.environ.get(
-    "MARKETPLACE_URL",
-    "https://www.facebook.com/marketplace/cordoba/propertyforsale",
-)
+# Sin sesión, Facebook solo respeta la ciudad en las búsquedas por texto (la categoría inmuebles
+# devuelve avisos de otro país). Cada búsqueda define el tipo si el título no lo dice.
+BUSQUEDAS = {
+    "casa": "https://www.facebook.com/marketplace/cordoba/search/?query=casa%20en%20venta",
+    "departamento": "https://www.facebook.com/marketplace/cordoba/search/?query=departamento%20en%20venta",
+    "terreno": "https://www.facebook.com/marketplace/cordoba/search/?query=terreno%20en%20venta",
+}
 
 
 def _sin_acentos(t):
@@ -32,12 +35,7 @@ def traer(maximo=MAX):
     token = os.environ["APIFY_TOKEN"].strip()
     url = (f"https://api.apify.com/v2/acts/{ACTOR}/run-sync-get-dataset-items"
            f"?token={token}&timeout=600&format=json&clean=true")
-    entrada = {"startUrls": [{"url": URL_BUSQUEDA}], "resultsLimit": maximo}
-    # Facebook decide la ciudad por el IP: se pide un proxy de Argentina.
-    pais = os.environ.get("MARKETPLACE_PAIS_PROXY", "AR")
-    if pais:
-        grupos = [g for g in os.environ.get("MARKETPLACE_GRUPO_PROXY", "RESIDENTIAL").split(",") if g]
-        entrada["proxyConfiguration"] = {"useApifyProxy": True, "apifyProxyGroups": grupos, "apifyProxyCountry": pais}
+    entrada = {"startUrls": [{"url": u} for u in BUSQUEDAS.values()], "resultsLimit": max(1, maximo // len(BUSQUEDAS))}
     cuerpo = json.dumps(entrada).encode()
     pedido = urllib.request.Request(url, data=cuerpo, method="POST", headers={"content-type": "application/json"})
     try:
@@ -103,13 +101,19 @@ def normalizar(x):
     lat = (x.get("location") or {}).get("latitude")
     lng = (x.get("location") or {}).get("longitude")
     sup = _superficie(texto)
+    tipo = _tipo(texto)
+    if not tipo:  # el de la búsqueda que lo trajo
+        tipo = next((t for t, u in BUSQUEDAS.items() if u == x.get("facebookUrl")), None)
+    # En Marketplace casi todos publican en "pesos" un número que en realidad son dólares.
+    if moneda == "ARS" and monto and 5000 <= monto <= 2000000 and not re.search(r"\bpesos\b|millones", texto, re.I):
+        moneda = "USD"
     return {
         "portal": "marketplace",
         "portal_id": str(x.get("id")),
         "url": x.get("listingUrl") or f"https://www.facebook.com/marketplace/item/{x.get('id')}/",
         "titulo": titulo[:300],
         "descripcion": (desc or subt or "")[:4000],
-        "tipo": _tipo(texto),
+        "tipo": tipo,
         "provincia": geo.get("state") or "Córdoba",
         "ciudad": geo.get("city") or "Córdoba",
         "barrio": None,
@@ -133,6 +137,8 @@ def normalizar(x):
 
 def coincide(p, f, nombres, textos_dorm):
     if not p["portal_id"] or p["portal_id"] == "None" or not p["tipo"]:
+        return False
+    if re.search(r"\balquil", _sin_acentos(p["titulo"] + " " + (p["descripcion"] or ""))):
         return False
     if p["tipo"] not in (f.get("tipos") or ["casa", "departamento"]):
         return False
