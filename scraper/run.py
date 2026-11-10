@@ -534,10 +534,22 @@ class Robot:
             desde += 1000
         return filas
 
+    def sincronizar_barrios(self):
+        """Carga la tabla barrios (para los filtros de la web) desde el archivo del repositorio."""
+        hay = self.sb.table("barrios").select("id", count="exact").limit(1).execute().count or 0
+        if hay == len(self.barrios.lista):
+            return
+        filas = [{"id": b["id"], "nombre": b["nombre"], "bonito": bonito(b["nombre"]), "zona": b["zona"],
+                  "lat": b["lat"], "lng": b["lng"]} for b in self.barrios.lista]
+        for i in range(0, len(filas), 500):
+            self.sb.table("barrios").upsert(filas[i:i + 500], on_conflict="id").execute()
+        print(f"Barrios oficiales cargados: {len(filas)}")
+
     def completar_barrios(self):
         """Barrio oficial y zona para los avisos guardados que todavía no los tienen."""
         if not self.tiene_indices:
             return
+        self.sincronizar_barrios()
         pendientes = self._todas("id,lat,lng,ciudad,barrio,titulo,descripcion", lambda q: q.is_("barrio_id", "null"))
         filas = []
         for p in pendientes:
