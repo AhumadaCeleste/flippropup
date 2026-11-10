@@ -163,7 +163,11 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .barra-valor { display: grid; gap: 6px; }
 .barra-titulo { font-size: 12px; line-height: 16px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
 .barra-pista { position: relative; height: 10px; border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 25%, var(--warning) 50%, var(--danger) 75%, var(--danger) 100%); }
+  background: linear-gradient(90deg, #64748B 0%, #94A3B8 40%, var(--warning) 60%, #FB7185 80%, #E11D48 100%); }
+.barra-escala { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: -2px; }
+.barra-marca.fuera { box-shadow: 0 0 0 1px var(--text), 0 0 0 4px rgba(225, 29, 72, .45); }
+.barra-texto .oportunidad { color: #FB7185; font-weight: 700; }
+.barra-texto .caro { color: var(--text-muted); font-weight: 700; }
 .barra-valor.chica .barra-pista { height: 6px; }
 .barra-centro { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--base-deepest); opacity: .7; }
 .barra-marca { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 999px;

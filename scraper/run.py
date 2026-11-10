@@ -203,6 +203,10 @@ class Robot:
 
     def guardar(self, p):
         p = dict(p)
+        # Superficies imposibles (separadores de miles mal leídos, "185.134 m²"): mejor sin dato que un m² de U$S 1.
+        sup = p.get("superficie_total")
+        if sup and (sup < 12 or (p.get("tipo") != "terreno" and sup > 5000) or sup > 500000):
+            p["superficie_total"] = None
         if not self.tiene_contacto or not p.get("telefono"):
             p.pop("telefono", None)
         if not self.tiene_indices or p.get("barrio_id") is None:

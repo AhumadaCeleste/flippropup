@@ -107,7 +107,7 @@ begin
     ref_nivel = case when p.moneda = 'USD' then calc.nivel end,
     puntaje = least(100, greatest(0, round(
         -- precio por m² contra la referencia (hasta 50): 15 % o más abajo suma; 15 % arriba no suma
-        coalesce(case when p.moneda = 'USD' and p.precio_m2 > 0 and calc.ref > 0
+        coalesce(case when p.moneda = 'USD' and p.precio_m2 between 100 and 10000 and calc.ref > 0
              then greatest(0, least(1, (1.15 - p.precio_m2 / calc.ref) / 0.45)) * 50 end, 0)
         -- días publicado (hasta 15): a los 180 días suma todo
       + least(1, greatest(0, current_date - coalesce(p.publicado_desde, current_date)) / 180.0) * 15
