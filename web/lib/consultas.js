@@ -27,7 +27,7 @@ function consultaPortal(supabase, f, ubicaciones, portal, descartados) {
   if (f.tipos?.length) q = q.in("tipo", f.tipos);
   if (f.barrios_id?.length) q = q.in("barrio_id", f.barrios_id);
   else if (f.barrios_tid?.length) q = q.in("barrio", f.barrios_tid.map(nombre).filter(Boolean));
-  else if (f.ciudad_tid === CORDOBA_CAPITAL) q = q.or("barrio_id.not.is.null,ciudad.ilike.c_rdoba,ciudad.ilike.c_rdoba capital,ciudad.ilike.capital");
+  else if (f.ciudad_tid === CORDOBA_CAPITAL) q = q.or("barrio_id.not.is.null,ciudad.ilike.c_rdoba*,ciudad.ilike.capital");
   else if (f.ciudad_tid && nombre(f.ciudad_tid)) q = q.ilike("ciudad", nombre(f.ciudad_tid));
   if (f.zonas?.length) q = q.in("zona", f.zonas);
   if (f.antiguedad) {
