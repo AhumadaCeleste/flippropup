@@ -275,7 +275,25 @@ class Robot:
             self._nombres = {u["tid"]: u["nombre"] for u in filas}
         return self._nombres
 
+    def reconectar(self):
+        """Supabase corta la conexión HTTP/2 a los ~20.000 pedidos: se abre una nueva."""
+        self.sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+
     def registrar(self, b, p, tipo, primera_vez):
+        for intento in range(3):
+            try:
+                return self._registrar(b, p, tipo, primera_vez)
+            except Exception as e:
+                texto = f"{type(e).__name__} {e}"
+                if intento < 2 and any(x in texto for x in ("ConnectionTerminated", "RemoteProtocolError", "ReadError",
+                                                             "ConnectError", "ReadTimeout", "Server disconnected")):
+                    print(f"  Conexión con la base cortada ({texto[:80]}); reconecto y reintento.")
+                    time.sleep(2)
+                    self.reconectar()
+                    continue
+                raise
+
+    def _registrar(self, b, p, tipo, primera_vez):
         p = {k: v for k, v in p.items() if not k.startswith("_")}
         pub_id, es_nuevo = self.guardar(p)
         self.vistos.add(pub_id)
