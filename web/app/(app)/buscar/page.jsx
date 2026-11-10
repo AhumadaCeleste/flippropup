@@ -1,6 +1,6 @@
 import { supabaseServidor } from "@/lib/supabase/server";
 import { filtrosDesdeParams, resumenFiltros, nombrePortal } from "@/lib/filtros";
-import { buscarPublicaciones, ubicacionesLaVoz, idsSeguidos } from "@/lib/consultas";
+import { buscarPublicaciones, ubicacionesLaVoz, idsSeguidos, barriosOficiales } from "@/lib/consultas";
 import FormularioBusqueda from "@/components/FormularioBusqueda";
 import Tarjeta from "@/components/Tarjeta";
 import MapaResultados from "@/components/MapaResultados";
@@ -11,7 +11,7 @@ export default async function Buscar({ searchParams }) {
   const sp = await searchParams;
   const filtros = filtrosDesdeParams(sp);
   const supabase = await supabaseServidor();
-  const ubicaciones = await ubicacionesLaVoz(supabase);
+  const [ubicaciones, oficiales] = await Promise.all([ubicacionesLaVoz(supabase), barriosOficiales(supabase)]);
   const enMapa = sp.vista === "mapa";
   const [{ lista: resultados, totales, total }, seguidos] = await Promise.all([
     enMapa
@@ -36,7 +36,7 @@ export default async function Buscar({ searchParams }) {
           <p className="muted" style={{ margin: "4px 0 0" }}>Los resultados salen de lo que el robot guardó esta mañana.</p>
         </div>
       </div>
-      <FormularioBusqueda ubicaciones={ubicaciones} filtros={filtros} />
+      <FormularioBusqueda ubicaciones={ubicaciones} filtros={filtros} oficiales={oficiales} />
       <div className="encabezado">
         <div>
           <h2 style={{ margin: 0 }}>{total.toLocaleString("es-AR")} resultados{enMapa ? " con ubicación" : ""}</h2>
@@ -50,7 +50,7 @@ export default async function Buscar({ searchParams }) {
             <a href={enlaceVista("lista")} aria-current={!enMapa ? "page" : undefined}>Lista</a>
             <a href={enlaceVista("mapa")} aria-current={enMapa ? "page" : undefined}>Mapa</a>
           </nav>
-          <span className="muted" style={{ fontSize: 14 }}>{resumenFiltros(filtros, ubicaciones)}</span>
+          <span className="muted" style={{ fontSize: 14 }}>{resumenFiltros(filtros, ubicaciones, oficiales)}</span>
         </div>
       </div>
       {enMapa ? (
@@ -72,7 +72,7 @@ export default async function Buscar({ searchParams }) {
       ) : (
         <div className="panel vacio">
           <h2>Todavía no hay avisos con estos filtros</h2>
-          <p>Guardá la búsqueda: el robot la corre enseguida y después todas las mañanas a las 8:00.</p>
+          <p>Probá con menos filtros, o guardá la búsqueda: el robot la corre enseguida y después todas las mañanas.</p>
         </div>
       )}
     </>

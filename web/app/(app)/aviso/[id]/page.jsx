@@ -8,6 +8,12 @@ import SelectorEstado from "@/components/SelectorEstado";
 import { origenAviso } from "@/lib/filtros";
 import BotonWhatsApp, { telefonoVisible, telefonoDe } from "@/components/BotonWhatsApp";
 import MapaResultados from "@/components/MapaResultados";
+import BarraValor from "@/components/BarraValor";
+import CalculadoraFlip from "@/components/CalculadoraFlip";
+import { Puntaje } from "@/components/Tarjeta";
+import { nombreZona } from "@/lib/filtros";
+
+const NIVEL = { barrio: "del mismo barrio", zona: "de la misma zona", ciudad: "de toda la ciudad", tipo: "del mismo tipo" };
 
 export default async function Aviso({ params }) {
   const { id } = await params;
@@ -20,7 +26,11 @@ export default async function Aviso({ params }) {
     supabase.from("notas").select("*").eq("publicacion_id", id).order("creada", { ascending: false }),
   ]);
   const cambio = seg ? variacion(seg.precio_inicial, p.precio) : null;
-  const dias = diasDesde(p.fecha_publicacion || p.primera_vez);
+  const dias = diasDesde(p.publicado_desde || p.fecha_publicacion || p.primera_vez);
+  const { data: barrioOficial } = p.barrio_id
+    ? await supabase.from("barrios").select("bonito,zona").eq("id", p.barrio_id).maybeSingle()
+    : { data: null };
+  const mapaIdecor = p.lat && p.lng ? `https://mapascordoba.gob.ar/viewer/mapa/548?lat=${p.lat}&lng=${p.lng}&zoom=18` : "https://mapascordoba.gob.ar/viewer/mapa/548";
   const fotos = p.fotos || [];
 
   return (
@@ -64,8 +74,23 @@ export default async function Aviso({ params }) {
             <div>
               <div className="precio" style={{ fontSize: 32, lineHeight: "38px" }}>{precio(p.precio, p.moneda)}</div>
               {cambio ? <div className={cambio < 0 ? "baja" : "suba"}>{porcentaje(cambio)} desde que la seguimos</div> : null}
+              {p.puntaje !== null && p.puntaje !== undefined && (
+                <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+                  <Puntaje valor={p.puntaje} /><span className="muted" style={{ fontSize: 13 }}>puntaje de oportunidad (0 a 100)</span>
+                </div>
+              )}
               {p.estado === "dado_de_baja" && <span className="chip chip-peligro">Dado de baja</span>}
             </div>
+            {p.idecor_m2 && p.precio_m2 ? (
+              <BarraValor precioM2={p.precio_m2} referencia={p.idecor_m2} titulo="Índice IDECOR"
+                detalle={<>{p.idecor_base}{p.idecor_parcela ? ` · parcela ${p.idecor_parcela}` : ""} · <a href={mapaIdecor} target="_blank" rel="noopener noreferrer">ver en Mapas Córdoba</a></>} />
+            ) : p.tipo === "departamento" ? (
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>IDECOR no publica valores de departamentos: se compara con el mercado.</p>
+            ) : null}
+            {p.ref_m2 && p.precio_m2 ? (
+              <BarraValor precioM2={p.precio_m2} referencia={p.ref_m2} titulo="Mercado (avisos parecidos)"
+                detalle={`Mediana de ${p.ref_n} avisos ${NIVEL[p.ref_nivel] || ""}${p.dormitorios ? `, ${p.dormitorios.toLowerCase()}` : ""}.`} />
+            ) : null}
             <dl>
               <dt>Precio por m²</dt><dd className="num">{p.precio_m2 ? precio(p.precio_m2, p.moneda) : "—"}</dd>
               <dt>Superficie total</dt><dd className="num">{p.superficie_total ? `${Math.round(p.superficie_total)} m²` : "—"}</dd>
@@ -75,17 +100,26 @@ export default async function Aviso({ params }) {
               <dt>Apto crédito</dt><dd>{p.apto_credito || "—"}</dd>
               <dt>Vendedor</dt><dd>{p.vendedor_tipo}{p.vendedor_nombre ? ` · ${p.vendedor_nombre}` : ""}</dd>
               <dt>Teléfono</dt><dd>{telefonoDe(p) ? <a href={`tel:+${telefonoDe(p)}`}>{telefonoVisible(telefonoDe(p))}</a> : <span className="muted">Pedilo en el portal</span>}</dd>
-              <dt>Publicado</dt><dd>{dias !== null ? `hace ${dias} días` : "—"}</dd>
+              <dt>Publicado</dt><dd>{dias !== null ? `hace ${dias} días` : "—"}{p.fecha_publicacion ? ` (${fechaCorta(p.fecha_publicacion)})` : ""}</dd>
               <dt>Lo encontramos</dt><dd>{fechaCorta(p.primera_vez)}</dd>
+              {barrioOficial && <><dt>Barrio oficial</dt><dd>{barrioOficial.bonito} · zona {nombreZona(barrioOficial.zona).toLowerCase()}</dd></>}
             </dl>
             {p.lat && p.lng && (
               <>
                 <MapaResultados alto={240} centro={[Number(p.lat), Number(p.lng)]}
                   puntos={[{ lat: p.lat, lng: p.lng, portal: p.portal, destacado: true, etiqueta: p.titulo }]} />
+                <span className="muted" style={{ fontSize: 13 }}>Ubicación aproximada: la mayoría de los portales no publica la altura exacta.</span>
                 <a className="btn btn-chico" href={`https://www.google.com/maps?q=${p.lat},${p.lng}`} target="_blank" rel="noopener noreferrer">Abrir en Google Maps (Street View)</a>
               </>
             )}
           </section>
+
+          {p.moneda === "USD" && (
+            <section className="panel" style={{ display: "grid", gap: 12 }}>
+              <h2>Calculadora de flip</h2>
+              <CalculadoraFlip precio={p.precio} m2={p.superficie_total} referenciaM2={p.ref_m2 || p.idecor_m2} />
+            </section>
+          )}
 
           {seg && (
             <section className="panel" style={{ display: "grid", gap: 12 }}>

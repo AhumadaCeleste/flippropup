@@ -158,3 +158,24 @@ td .mini { width: 88px; height: 60px; object-fit: cover; border-radius: var(--ra
 button:disabled { opacity: .55; cursor: not-allowed; }
 
 .mapa-oscuro .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.6); }
+
+/* Barra de comparación de precio por m² contra una referencia (IDECOR o mercado) */
+.barra-valor { display: grid; gap: 6px; }
+.barra-titulo { font-size: 12px; line-height: 16px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.barra-pista { position: relative; height: 10px; border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 25%, var(--warning) 50%, var(--danger) 75%, var(--danger) 100%); }
+.barra-valor.chica .barra-pista { height: 6px; }
+.barra-centro { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--base-deepest); opacity: .7; }
+.barra-marca { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 999px;
+  background: var(--text); border: 3px solid var(--base-deepest); box-shadow: 0 0 0 1px var(--text); }
+.barra-valor.chica .barra-marca { width: 12px; height: 12px; margin: -6px 0 0 -6px; border-width: 2px; }
+.barra-texto { font-size: 14px; }
+.barra-valor.chica .barra-texto { font-size: 13px; color: var(--text-muted); }
+.puntaje { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 800;
+  font-variant-numeric: tabular-nums; border: 1px solid var(--line); background: var(--base-deepest); }
+.puntaje.alto { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.calculadora { display: grid; gap: 10px; }
+.calculadora .fila-calc { display: grid; grid-template-columns: 1fr 130px; gap: 8px; align-items: center; font-size: 14px; }
+.calculadora input { width: 100%; }
+.calculadora .resultado { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 15px; }
+.calculadora .resultado strong { font-variant-numeric: tabular-nums; text-align: right; }

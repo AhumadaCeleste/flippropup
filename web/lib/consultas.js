@@ -1,4 +1,9 @@
-import { DORMITORIOS, PORTALES } from "./filtros";
+import { DORMITORIOS, PORTALES, CORDOBA_CAPITAL } from "./filtros";
+
+export async function barriosOficiales(supabase) {
+  const { data } = await supabase.from("barrios").select("id,bonito,zona").order("bonito").range(0, 999);
+  return data || [];
+}
 
 export async function ubicacionesLaVoz(supabase) {
   const { data } = await supabase
@@ -20,8 +25,15 @@ function consultaPortal(supabase, f, ubicaciones, portal, descartados) {
     .eq("portal", portal);
 
   if (f.tipos?.length) q = q.in("tipo", f.tipos);
-  if (f.barrios_tid?.length) q = q.in("barrio", f.barrios_tid.map(nombre).filter(Boolean));
-  else if (f.ciudad_tid && nombre(f.ciudad_tid)) q = q.eq("ciudad", nombre(f.ciudad_tid));
+  if (f.barrios_id?.length) q = q.in("barrio_id", f.barrios_id);
+  else if (f.barrios_tid?.length) q = q.in("barrio", f.barrios_tid.map(nombre).filter(Boolean));
+  else if (f.ciudad_tid === CORDOBA_CAPITAL) q = q.or("barrio_id.not.is.null,ciudad.ilike.c_rdoba,ciudad.ilike.c_rdoba capital,ciudad.ilike.capital");
+  else if (f.ciudad_tid && nombre(f.ciudad_tid)) q = q.ilike("ciudad", nombre(f.ciudad_tid));
+  if (f.zonas?.length) q = q.in("zona", f.zonas);
+  if (f.antiguedad) {
+    const hasta = new Date(Date.now() - f.antiguedad * 86400000).toISOString().slice(0, 10);
+    q = q.lte("publicado_desde", hasta);
+  }
   if (f.dormitorios?.length)
     q = q.in("dormitorios", f.dormitorios.map((d) => DORMITORIOS.find((x) => x.valor === d)?.texto).filter(Boolean));
   if (f.precio_desde || f.precio_hasta) {
@@ -42,6 +54,8 @@ function consultaPortal(supabase, f, ubicaciones, portal, descartados) {
 
   if (f.orden === "precio") q = q.order("precio", { ascending: true, nullsFirst: false });
   else if (f.orden === "precio_m2") q = q.order("precio_m2", { ascending: true, nullsFirst: false });
+  else if (f.orden === "puntaje") q = q.order("puntaje", { ascending: false, nullsFirst: false });
+  else if (f.orden === "antiguos") q = q.order("publicado_desde", { ascending: true, nullsFirst: false });
   else q = q.order("primera_vez", { ascending: false });
   return q;
 }
@@ -68,9 +82,13 @@ export async function buscarPublicaciones(supabase, f, ubicaciones, limite = 90,
   });
 
   let lista;
-  if (f.orden === "precio" || f.orden === "precio_m2") {
-    const campo = f.orden === "precio" ? "precio" : "precio_m2";
-    const valor = (p) => (p[campo] == null ? Infinity : Number(p[campo]));
+  if (["precio", "precio_m2", "puntaje", "antiguos"].includes(f.orden)) {
+    const valor = {
+      precio: (p) => (p.precio == null ? Infinity : Number(p.precio)),
+      precio_m2: (p) => (p.precio_m2 == null ? Infinity : Number(p.precio_m2)),
+      puntaje: (p) => -(p.puntaje ?? -1),
+      antiguos: (p) => (p.publicado_desde ? new Date(p.publicado_desde).getTime() : Infinity),
+    }[f.orden];
     lista = listas.flat().sort((a, b) => valor(a) - valor(b));
   } else {
     // "Más nuevos": se intercalan los portales (uno de cada uno).

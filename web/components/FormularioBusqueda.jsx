@@ -1,10 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
-import { TIPOS, DORMITORIOS, PALABRAS_SUGERIDAS, PORTALES } from "@/lib/filtros";
+import { TIPOS, DORMITORIOS, PALABRAS_SUGERIDAS, PORTALES, ZONAS, ANTIGUEDADES, CORDOBA_CAPITAL, CORDOBA_PROVINCIA as CORDOBA } from "@/lib/filtros";
 import { guardarBusqueda } from "@/app/acciones";
-
-const CORDOBA = 3173;
-const CORDOBA_CAPITAL = 3194;
 
 function Opcion({ name, value, checked, children }) {
   return (
@@ -15,11 +12,13 @@ function Opcion({ name, value, checked, children }) {
   );
 }
 
-export default function FormularioBusqueda({ ubicaciones, filtros }) {
+export default function FormularioBusqueda({ ubicaciones, filtros, oficiales = [] }) {
   const provincias = ubicaciones.filter((u) => u.tipo === "provincia");
   const [provincia, setProvincia] = useState(String(filtros.provincia_tid || CORDOBA));
-  const [ciudad, setCiudad] = useState(filtros.ciudad_tid ? String(filtros.ciudad_tid) : "");
-  const [barrios, setBarrios] = useState(filtros.barrios_tid.map(String));
+  const [ciudad, setCiudad] = useState(filtros.ciudad_tid ? String(filtros.ciudad_tid) : "todas");
+  const capital = ciudad === String(CORDOBA_CAPITAL) && oficiales.length > 0;
+  const [barrios, setBarrios] = useState((filtros.barrios_id.length ? filtros.barrios_id : filtros.barrios_tid).map(String));
+  const [zonas, setZonas] = useState(filtros.zonas);
   const [filtroBarrio, setFiltroBarrio] = useState("");
   const [error, setError] = useState("");
 
@@ -27,11 +26,18 @@ export default function FormularioBusqueda({ ubicaciones, filtros }) {
     const lista = ubicaciones.filter((u) => u.tipo === "ciudad" && String(u.padre_tid) === provincia);
     return lista.length ? lista : [{ tid: CORDOBA_CAPITAL, nombre: "Córdoba" }];
   }, [ubicaciones, provincia]);
+  // En Córdoba capital se usan los barrios oficiales de la Municipalidad (con su zona);
+  // en el resto de las ciudades, los de La Voz.
   const barriosCiudad = useMemo(
-    () => ubicaciones.filter((u) => u.tipo === "barrio" && String(u.padre_tid) === ciudad),
-    [ubicaciones, ciudad]
+    () => capital
+      ? oficiales.map((b) => ({ tid: b.id, nombre: b.bonito, zona: b.zona }))
+      : ubicaciones.filter((u) => u.tipo === "barrio" && String(u.padre_tid) === ciudad),
+    [ubicaciones, oficiales, ciudad, capital]
   );
-  const visibles = barriosCiudad.filter((b) => b.nombre.toLowerCase().includes(filtroBarrio.toLowerCase()));
+  const sinAcento = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const visibles = barriosCiudad.filter((b) =>
+    sinAcento(b.nombre).includes(sinAcento(filtroBarrio)) && (!capital || !zonas.length || zonas.includes(b.zona)));
+  const alternarZona = (z) => setZonas((l) => (l.includes(z) ? l.filter((x) => x !== z) : [...l, z]));
   const nombreBarrio = (tid) => barriosCiudad.find((b) => String(b.tid) === tid)?.nombre || tid;
 
   function alternarBarrio(tid) {
@@ -86,14 +92,27 @@ export default function FormularioBusqueda({ ubicaciones, filtros }) {
         </label>
         <label className="campo">
           <span>Ciudad</span>
-          <select name="ciudad" value={ciudad} onChange={(e) => { setCiudad(e.target.value); setBarrios([]); }}>
-            <option value="">Todas las ciudades</option>
+          <select name="ciudad" value={ciudad} onChange={(e) => { setCiudad(e.target.value); setBarrios([]); setZonas([]); }}>
+            <option value="todas">Todas las ciudades</option>
             {ciudades.map((c) => <option key={c.tid} value={c.tid}>{c.nombre}</option>)}
           </select>
         </label>
+        {capital && (
+          <div className="campo">
+            <span>Zona</span>
+            <div className="opciones">
+              {ZONAS.map((z) => (
+                <label key={z.valor} className="opcion">
+                  <input type="checkbox" name="zona" value={z.valor} checked={zonas.includes(z.valor)} onChange={() => alternarZona(z.valor)} />
+                  <span>{z.etiqueta}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="campo">
           <span>Barrios {barrios.length ? `(${barrios.length})` : ""}</span>
-          {ciudad && barriosCiudad.length ? (
+          {ciudad !== "todas" && barriosCiudad.length ? (
             <>
               <input type="search" placeholder="Escribí para filtrar barrios" value={filtroBarrio} onChange={(e) => setFiltroBarrio(e.target.value)} />
               <div className="lista-barrios">
@@ -108,7 +127,7 @@ export default function FormularioBusqueda({ ubicaciones, filtros }) {
             </>
           ) : (
             <span className="muted" style={{ fontSize: 14 }}>
-              {ciudad ? "La lista de barrios se carga cuando el robot corre por primera vez." : "Elegí una ciudad para ver sus barrios."}
+              {ciudad !== "todas" ? "La lista de barrios se carga cuando el robot corre por primera vez." : "Elegí una ciudad para ver sus barrios."}
             </span>
           )}
           {barrios.length > 0 && (
@@ -120,7 +139,7 @@ export default function FormularioBusqueda({ ubicaciones, filtros }) {
               ))}
             </div>
           )}
-          {barrios.map((tid) => <input key={tid} type="hidden" name="barrio" value={tid} />)}
+          {barrios.map((tid) => <input key={tid} type="hidden" name={capital ? "barrio_of" : "barrio"} value={tid} />)}
         </div>
       </div>
 
@@ -162,6 +181,13 @@ export default function FormularioBusqueda({ ubicaciones, filtros }) {
             <option value="inmobiliaria">Inmobiliaria</option>
           </select>
         </label>
+        <label className="campo">
+          <span>Antigüedad de la publicación</span>
+          <select name="publicado" defaultValue={filtros.antiguedad || ""}>
+            <option value="">Cualquiera</option>
+            {ANTIGUEDADES.map((a) => <option key={a.valor} value={a.valor}>{a.etiqueta}</option>)}
+          </select>
+        </label>
         <div className="campo">
           <span>Condiciones</span>
           <div className="opciones">
@@ -171,7 +197,9 @@ export default function FormularioBusqueda({ ubicaciones, filtros }) {
         <label className="campo">
           <span>Ordenar por</span>
           <select name="orden" defaultValue={filtros.orden}>
+            <option value="puntaje">Mejor oportunidad (puntaje)</option>
             <option value="nuevos">Más nuevos</option>
+            <option value="antiguos">Publicados hace más tiempo</option>
             <option value="precio">Menor precio</option>
             <option value="precio_m2">Menor precio por m²</option>
           </select>

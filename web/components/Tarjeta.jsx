@@ -3,9 +3,15 @@ import { seguir, dejarDeSeguir, descartar } from "@/app/acciones";
 import { precio, diasDesde } from "@/lib/formato";
 import { origenAviso } from "@/lib/filtros";
 import BotonWhatsApp from "@/components/BotonWhatsApp";
+import BarraValor from "@/components/BarraValor";
+
+export function Puntaje({ valor }) {
+  if (valor === null || valor === undefined) return null;
+  return <span className={`puntaje${valor >= 60 ? " alto" : ""}`} title="Puntaje de oportunidad (0 a 100): precio por m² frente a la zona, días publicado, bajas de precio y palabras clave">{valor} pts</span>;
+}
 
 export default function Tarjeta({ p, seguido }) {
-  const dias = diasDesde(p.fecha_publicacion || p.primera_vez);
+  const dias = diasDesde(p.publicado_desde || p.fecha_publicacion || p.primera_vez);
   const datos = [
     p.dormitorios,
     p.superficie_total ? `${Math.round(p.superficie_total)} m²` : null,
@@ -18,10 +24,18 @@ export default function Tarjeta({ p, seguido }) {
         <span className="chip portal">{origenAviso(p)}</span>
       </Link>
       <div className="cuerpo">
-        <div className="precio">{precio(p.precio, p.moneda)}</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <div className="precio">{precio(p.precio, p.moneda)}</div>
+          <Puntaje valor={p.puntaje} />
+        </div>
         <Link href={`/aviso/${p.id}`} className="titulo">{p.titulo}</Link>
         <div className="datos">{[p.barrio, p.ciudad].filter(Boolean).join(", ")}</div>
         <div className="datos">{datos}</div>
+        {p.idecor_m2 && p.precio_m2 ? (
+          <BarraValor chica precioM2={p.precio_m2} referencia={p.idecor_m2} titulo="del índice IDECOR" />
+        ) : p.ref_m2 && p.precio_m2 ? (
+          <BarraValor chica precioM2={p.precio_m2} referencia={p.ref_m2} titulo="del m² de la zona" />
+        ) : null}
         <div className="datos">
           {p.vendedor_tipo === "Particular" ? <span className="chip chip-acento">Dueño directo</span> : p.vendedor_tipo}
           {dias !== null ? ` · publicado hace ${dias} ${dias === 1 ? "día" : "días"}` : ""}
