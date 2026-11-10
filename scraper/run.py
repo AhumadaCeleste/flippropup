@@ -26,6 +26,7 @@ from supabase import create_client
 import emailer
 import idecor
 import marketplace
+import repetidos
 import telefonos
 from barrios import Barrios, bonito
 import cordobaprop as cp
@@ -145,6 +146,12 @@ class Robot:
             self.tiene_anuncio = True
         except Exception:
             self.tiene_anuncio = False
+        try:
+            self.sb.table("publicaciones").select("grupo_id,desvio_ref").limit(1).execute()
+            self.tiene_grupos = True
+        except Exception:
+            print("Aviso: falta la migración 2026-11-10c-repetidos-umbral-cierre.sql (repetidos y umbral).")
+            self.tiene_grupos = False
         self.barrios = Barrios()
         self._nombres = None
         self.seguidos = {s["publicacion_id"] for s in self.sb.table("seguimientos").select("publicacion_id").execute().data}
@@ -490,7 +497,7 @@ class Robot:
     def enviar_resumen(self):
         pendientes = (self.sb.table("alertas").select("*, publicaciones(*)")
                       .eq("enviada", False).order("fecha").execute().data)
-        grupos = {}
+        grupos, top = {}, []
         if self.tiene_indices:
             desde = (datetime.now(timezone.utc) - timedelta(hours=26)).isoformat()
             top = (self.sb.table("publicaciones").select("*").eq("estado", "activo").gte("primera_vez", desde)
@@ -509,7 +516,10 @@ class Robot:
             if not p:
                 continue
             extra = ""
-            if a["tipo"] in ("baja_precio", "suba_precio") and a["valor_anterior"]:
+            if a["tipo"] == "oportunidad":
+                extra = (f'<span style="font-size:14px;color:{emailer.ACENTO}">{abs(float(a["valor_anterior"] or 0)):.0f} % '
+                         f'debajo del m² de la zona · llegó a tu umbral</span>')
+            elif a["tipo"] in ("baja_precio", "suba_precio") and a["valor_anterior"]:
                 pct = (a["valor_nuevo"] - a["valor_anterior"]) / a["valor_anterior"] * 100
                 flecha = "▼" if pct < 0 else "▲"
                 extra = (f'<span style="font-size:14px;color:{emailer.ACENTO if pct < 0 else emailer.PELIGRO}">'
@@ -517,7 +527,7 @@ class Robot:
             grupos.setdefault(a["tipo"], []).append((p, extra))
         destinatarios = [u["email"] for u in self.sb.table("usuarios_habilitados").select("email").execute().data]
         hoy = datetime.now(ART)
-        total = len(pendientes) + len(grupos.get("oportunidad", []))
+        total = len(pendientes) + len(top if self.tiene_indices else [])
         asunto = f"Flip PropUp · {total} novedad{'es' if total != 1 else ''} · {hoy:%d/%m}"
         html = emailer.armar_html(grupos, os.environ.get("SITIO_URL", "").rstrip("/"), f"Novedades del {hoy:%d/%m/%Y}")
         emailer.enviar(destinatarios, asunto, html)
@@ -630,10 +640,61 @@ class Robot:
         con = sum(1 for f in filas if "idecor_m2" in f)
         print(f"IDECOR: {indice.total} ofertas OMI · {con} de {len(pendientes)} casas/terrenos con índice")
 
+    def marcar_repetidos(self):
+        """Agrupa los avisos que son la misma propiedad (ver repetidos.py) y guarda el grupo en cada uno."""
+        if not self.tiene_grupos:
+            return
+        campos = ("id,portal,portal_id,tipo,moneda,precio,superficie_total,barrio_id,barrio_anuncio_id,dormitorios,"
+                  "titulo,vendedor_nombre,telefono,lat,lng,grupo_id,grupo_n,grupo_min,grupo_max,grupo_anunciantes")
+        avisos = self._todas(campos, maximo=40000)
+        grupos = repetidos.agrupar(avisos)
+        vacio = {"grupo_id": None, "grupo_n": None, "grupo_min": None, "grupo_max": None, "grupo_anunciantes": None}
+        filas = []
+        def valor(v):
+            return None if v is None else round(float(v), 2)
+        for a in avisos:
+            nuevo = grupos.get(a["id"], vacio)
+            if any(valor(a.get(k)) != valor(nuevo[k]) for k in vacio):
+                filas.append(dict(nuevo, id=a["id"]))
+        self._actualizar(filas)
+        n_grupos = len({g["grupo_id"] for g in grupos.values()})
+        print(f"Repetidos: {len(grupos)} avisos en {n_grupos} propiedades publicadas más de una vez ({len(filas)} cambios)")
+
+    def alertar_umbral(self):
+        """Búsquedas con 'avisame si está X % por debajo del m² de la zona': una alerta por aviso y búsqueda."""
+        if not self.tiene_grupos:
+            return
+        nuevas = 0
+        for b in self.sb.table("busquedas").select("id,nombre,filtros").eq("activa", True).execute().data:
+            d = (b.get("filtros") or {}).get("descuento_min")
+            if not d or (b.get("filtros") or {}).get("base"):
+                continue
+            ids = [r["publicacion_id"] for r in self.sb.table("busqueda_resultados").select("publicacion_id")
+                   .eq("busqueda_id", b["id"]).limit(5000).execute().data]
+            ya = {r["publicacion_id"] for r in self.sb.table("alertas").select("publicacion_id")
+                  .eq("busqueda_id", b["id"]).eq("tipo", "oportunidad").limit(5000).execute().data}
+            candidatos = [i for i in ids if i not in ya]
+            for k in range(0, len(candidatos), 300):
+                filas = (self.sb.table("publicaciones").select("id,precio,desvio_ref").in_("id", candidatos[k:k + 300])
+                         .eq("estado", "activo").lte("desvio_ref", -float(d) / 100).execute().data)
+                for p in filas:
+                    self.sb.table("alertas").insert({"publicacion_id": p["id"], "busqueda_id": b["id"], "tipo": "oportunidad",
+                                                     "valor_anterior": round(float(p["desvio_ref"]) * 100, 1),
+                                                     "valor_nuevo": p["precio"]}).execute()
+                    nuevas += 1
+        print(f"Umbral de descuento: {nuevas} avisos nuevos por debajo del umbral de alguna búsqueda")
+
     def recalcular(self):
         if self.tiene_indices:
             n = self.sb.rpc("recalcular_referencias", {}).execute().data
             print(f"Referencia de mercado y puntaje recalculados en {n} avisos")
+
+    def solo_calculos(self):
+        """Recalcula barrios, repetidos, IDECOR, referencias y umbrales sin volver a recorrer los portales."""
+        for paso, funcion in (("barrios", self.completar_barrios), ("repetidos", self.marcar_repetidos),
+                              ("idecor", self.calcular_idecor), ("referencias", self.recalcular),
+                              ("umbral", self.alertar_umbral)):
+            funcion()
 
     def correr(self):
         ej = self.sb.table("ejecuciones").insert({"estado": "corriendo"}).execute().data[0]["id"]
@@ -701,8 +762,9 @@ class Robot:
                     self.errores.append(f"fichas: {e}")
                     traceback.print_exc()
                 navegador.close()
-            for paso, funcion in (("barrios", self.completar_barrios), ("idecor", self.calcular_idecor),
-                                  ("referencias", self.recalcular)):
+            for paso, funcion in (("barrios", self.completar_barrios), ("repetidos", self.marcar_repetidos),
+                                  ("idecor", self.calcular_idecor), ("referencias", self.recalcular),
+                                  ("umbral", self.alertar_umbral)):
                 try:
                     funcion()
                 except Exception as e:
@@ -739,6 +801,8 @@ if __name__ == "__main__":
     try:
         if os.environ.get("PRUEBA_EMAIL") == "1":
             Robot().prueba_email()
+        elif os.environ.get("SOLO_CALCULOS") == "1":
+            Robot().solo_calculos()
         else:
             Robot().correr()
     except Exception:

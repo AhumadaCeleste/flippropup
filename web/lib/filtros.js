@@ -36,6 +36,12 @@ export const ANTIGUEDADES = [
   { valor: 90, etiqueta: "Más de 3 meses" },
   { valor: 180, etiqueta: "Más de 6 meses" },
 ];
+export const DESCUENTOS = [10, 15, 20, 25, 30];
+export const REPETIDOS = [
+  { valor: "agrupar", etiqueta: "Mostrar cada propiedad una vez" },
+  { valor: "solo", etiqueta: "Solo las publicadas más de una vez" },
+  { valor: "todos", etiqueta: "Mostrar todos los avisos" },
+];
 export const nombreZona = (z) => ZONAS.find((x) => x.valor === z)?.etiqueta || z;
 export const nombrePortal = (v) => PORTALES.find((x) => x.valor === v)?.etiqueta || v;
 // Para mostrar de dónde viene un aviso: en "Inmobiliarias" va el nombre de la inmobiliaria.
@@ -62,6 +68,8 @@ export function filtrosDesdeParams(sp = {}) {
     barrios_tid: lista(sp.barrio).map(Number).filter(Boolean),
     barrios_id: lista(sp.barrio_of).map(Number).filter(Boolean),
     zonas: lista(sp.zona).filter((z) => ZONAS.some((x) => x.valor === z)),
+    descuento_min: DESCUENTOS.includes(Number(sp.descuento)) ? Number(sp.descuento) : null,
+    repetidos: ["solo", "todos"].includes(sp.repetidos) ? sp.repetidos : "agrupar",
     antiguedad: ANTIGUEDADES.some((a) => String(a.valor) === String(sp.publicado)) ? Number(sp.publicado) : null,
     dormitorios: lista(sp.dorm),
     precio_desde: numero(sp.precio_desde),
@@ -88,6 +96,8 @@ export function paramsDesdeFiltros(f) {
   (f.barrios_id || []).forEach((b) => p.append("barrio_of", b));
   (f.zonas || []).forEach((z) => p.append("zona", z));
   if (f.antiguedad) p.set("publicado", f.antiguedad);
+  if (f.descuento_min) p.set("descuento", f.descuento_min);
+  if (f.repetidos && f.repetidos !== "agrupar") p.set("repetidos", f.repetidos);
   (f.dormitorios || []).forEach((d) => p.append("dorm", d));
   if (f.precio_desde) p.set("precio_desde", f.precio_desde);
   if (f.precio_hasta) p.set("precio_hasta", f.precio_hasta);
@@ -111,6 +121,8 @@ export function resumenFiltros(f, ubicaciones = [], barrios = []) {
     : f.barrios_tid?.length ? f.barrios_tid.map(nombre).filter(Boolean).join(", ") : nombre(f.ciudad_tid) || (f.ciudad_tid ? "" : "Toda la provincia");
   if (lugar) partes.push(lugar);
   if (f.zonas?.length) partes.push("Zona " + f.zonas.map(nombreZona).join(", "));
+  if (f.descuento_min) partes.push(`${f.descuento_min} % o más debajo del m² de la zona`);
+  if (f.repetidos === "solo") partes.push("Publicadas más de una vez");
   if (f.antiguedad) partes.push(`Publicados hace ${ANTIGUEDADES.find((a) => a.valor === f.antiguedad)?.etiqueta.toLowerCase()}`);
   if (f.dormitorios?.length) partes.push(f.dormitorios.map((d) => DORMITORIOS.find((x) => x.valor === d)?.etiqueta).join(", ") + " dorm.");
   const mon = f.moneda === "pesos" ? "$" : "U$S";

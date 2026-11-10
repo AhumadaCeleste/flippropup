@@ -31,6 +31,8 @@ function consultaPortal(supabase, f, ubicaciones, portal, descartados) {
   else if (f.ciudad_tid === CORDOBA_CAPITAL) q = q.or("barrio_id.not.is.null,ciudad.ilike.c_rdoba*,ciudad.ilike.capital");
   else if (f.ciudad_tid && nombre(f.ciudad_tid)) q = q.ilike("ciudad", nombre(f.ciudad_tid));
   if (f.zonas?.length) q = q.in("zona", f.zonas);
+  if (f.descuento_min) q = q.lte("desvio_ref", -f.descuento_min / 100);
+  if (f.repetidos === "solo") q = q.gt("grupo_n", 1);
   if (f.antiguedad) {
     const hasta = new Date(Date.now() - f.antiguedad * 86400000).toISOString().slice(0, 10);
     q = q.lte("publicado_desde", hasta);
@@ -96,6 +98,17 @@ export async function buscarPublicaciones(supabase, f, ubicaciones, limite = 90,
     lista = [];
     for (let i = 0; lista.length < limite && listas.some((l) => i < l.length); i++)
       listas.forEach((l) => { if (i < l.length) lista.push(l[i]); });
+  }
+  // La misma propiedad publicada varias veces aparece una sola vez (la primera según el orden elegido);
+  // la tarjeta avisa cuántas veces está publicada y la ficha las compara.
+  if (f.repetidos !== "todos") {
+    const vistos = new Set();
+    lista = lista.filter((p) => {
+      if (!p.grupo_id) return true;
+      if (vistos.has(p.grupo_id)) return false;
+      vistos.add(p.grupo_id);
+      return true;
+    });
   }
   return { lista: lista.slice(0, limite), totales, total: Object.values(totales).reduce((a, b) => a + b, 0) };
 }

@@ -17,6 +17,10 @@ on:
         description: "1 = solo mandar un email de prueba (no busca)"
         required: false
         default: "0"
+      solo_calculos:
+        description: "1 = solo recalcular barrios, repetidos, IDECOR y puntaje (no busca)"
+        required: false
+        default: "0"
 
 concurrency:
   group: robot
@@ -50,6 +54,7 @@ jobs:
           BUSQUEDA_ID: ${{ inputs.busqueda_id }}
           SIN_EMAIL: ${{ inputs.sin_email }}
           PRUEBA_EMAIL: ${{ inputs.prueba_email }}
+          SOLO_CALCULOS: ${{ inputs.solo_calculos }}
           EMAIL_WEBHOOK: ${{ secrets.EMAIL_WEBHOOK }}
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabaseServidor } from "@/lib/supabase/server";
 import { precio, variacion, porcentaje, diasDesde, fechaCorta } from "@/lib/formato";
-import { seguir, dejarDeSeguir, agregarNota, guardarObjetivo } from "@/app/acciones";
+import { seguir, dejarDeSeguir, agregarNota, guardarObjetivo, guardarCierre } from "@/app/acciones";
 import GraficoPrecios from "@/components/GraficoPrecios";
 import SelectorEstado from "@/components/SelectorEstado";
 import { origenAviso } from "@/lib/filtros";
@@ -30,6 +30,20 @@ export default async function Aviso({ params }) {
   const { data: barrioOficial } = p.barrio_id
     ? await supabase.from("barrios").select("bonito,zona").eq("id", p.barrio_id).maybeSingle()
     : { data: null };
+  const { data: hermanos } = p.grupo_id
+    ? await supabase.from("publicaciones")
+        .select("id,portal,url,titulo,precio,moneda,precio_m2,superficie_total,vendedor_tipo,vendedor_nombre,telefono,descripcion,publicado_desde,fecha_publicacion,primera_vez,estado")
+        .eq("grupo_id", p.grupo_id).order("precio", { ascending: true })
+    : { data: [] };
+  // Lo que cerraron en operaciones propias de la misma zona: cuánto debajo de lo publicado.
+  const { data: cierres } = await supabase.from("seguimientos")
+    .select("precio_cierre, publicaciones!inner(precio, moneda, zona)")
+    .not("precio_cierre", "is", null).eq("publicaciones.zona", p.zona || "-");
+  const descuentosCierre = (cierres || [])
+    .filter((c) => c.publicaciones?.precio && c.publicaciones.moneda === p.moneda)
+    .map((c) => (1 - Number(c.precio_cierre) / Number(c.publicaciones.precio)) * 100)
+    .filter((d) => d > -20 && d < 60);
+  const descuentoZona = descuentosCierre.length ? descuentosCierre.reduce((a, b) => a + b, 0) / descuentosCierre.length : null;
   const mapaIdecor = p.lat && p.lng ? `https://mapascordoba.gob.ar/viewer/mapa/548?lat=${p.lat}&lng=${p.lng}&zoom=18` : "https://mapascordoba.gob.ar/viewer/mapa/548";
   const fotos = p.fotos || [];
 
@@ -114,10 +128,63 @@ export default async function Aviso({ params }) {
             )}
           </section>
 
+          {(hermanos || []).length > 1 && (() => {
+            const activos = hermanos.filter((h) => h.estado === "activo");
+            const precios = activos.map((h) => Number(h.precio)).filter(Boolean);
+            const min = Math.min(...precios), max = Math.max(...precios);
+            const anunciantes = new Set(activos.map((h) => (h.vendedor_nombre || origenAviso(h)).toLowerCase())).size;
+            const dueno = activos.find((h) => h.vendedor_tipo === "Particular");
+            const primero = [...activos].sort((a, b) => String(a.publicado_desde || a.primera_vez).localeCompare(String(b.publicado_desde || b.primera_vez)))[0];
+            return (
+              <section className="panel" id="repetidos" style={{ display: "grid", gap: 12 }}>
+                <h2>Publicada {activos.length} veces</h2>
+                <p style={{ margin: 0 }}>
+                  La misma propiedad aparece en {activos.length} avisos de {anunciantes} anunciante{anunciantes === 1 ? "" : "s"}.
+                  {max > min && <> Entre el más barato y el más caro hay <strong className="baja">{precio(max - min, p.moneda)}</strong> ({((max / min - 1) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })} %).</>}
+                </p>
+                <table className="tabla-repetidos">
+                  <thead><tr><th>Anunciante</th><th style={{ textAlign: "right" }}>Precio</th><th style={{ textAlign: "right" }}>Publicado</th><th>Contacto</th></tr></thead>
+                  <tbody>
+                    {activos.map((h) => {
+                      const dias = diasDesde(h.publicado_desde || h.fecha_publicacion || h.primera_vez);
+                      const dif = Number(h.precio) - min;
+                      return (
+                        <tr key={h.id} className={`${h.id === p.id ? "este" : ""}${Number(h.precio) === min ? " mejor" : ""}`}>
+                          <td>
+                            <strong>{h.vendedor_tipo === "Particular" ? "Dueño directo" : h.vendedor_nombre || origenAviso(h)}</strong>
+                            <div className="muted" style={{ fontSize: 13 }}>{origenAviso(h)}{h.id === p.id ? " · este aviso" : ""}</div>
+                          </td>
+                          <td className="num">{precio(h.precio, h.moneda)}{dif > 0 && <div className="muted" style={{ fontSize: 12 }}>+{precio(dif, h.moneda)}</div>}</td>
+                          <td className="num">{dias !== null ? `hace ${dias} días` : "—"}</td>
+                          <td>
+                            <div className="acciones">
+                              <BotonWhatsApp p={h} siempre />
+                              {telefonoDe(h) && <a className="btn btn-chico" href={`tel:+${telefonoDe(h)}`}>{telefonoVisible(telefonoDe(h))}</a>}
+                              <a className="btn btn-chico" href={h.url} target="_blank" rel="noopener noreferrer">Ver</a>
+                              {h.id !== p.id && <a className="btn btn-chico" href={`/aviso/${h.id}`}>Ficha</a>}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="muted" style={{ fontSize: 14, display: "grid", gap: 4 }}>
+                  <strong style={{ color: "var(--text)" }}>Cómo usarlo para negociar</strong>
+                  {max > min && <span>· Consultá a los más caros mencionando que la viste a {precio(min, p.moneda)}: suelen igualar o mejorar.</span>}
+                  {dueno && <span>· Hay un aviso de dueño directo: empezá por ahí, sin comisión de por medio.</span>}
+                  {anunciantes > 1 && <span>· Con {anunciantes} anunciantes, preguntá a cada uno cuánto acepta el propietario y cuál es su comisión.</span>}
+                  {primero && <span>· El aviso más antiguo ({primero.vendedor_nombre || origenAviso(primero)}) suele ser quien tiene la relación directa con el dueño.</span>}
+                </div>
+              </section>
+            );
+          })()}
+
           {p.moneda === "USD" && (
             <section className="panel" style={{ display: "grid", gap: 12 }}>
               <h2>Calculadora de flip</h2>
-              <CalculadoraFlip precio={p.precio} m2={p.superficie_total} referenciaM2={p.ref_m2 || p.idecor_m2} />
+              <CalculadoraFlip precio={p.precio} m2={p.superficie_total} referenciaM2={p.ref_m2 || p.idecor_m2}
+                descuentoZona={descuentoZona} cierres={descuentosCierre.length} minimoPublicado={p.grupo_n > 1 ? Number(p.grupo_min) : null} />
             </section>
           )}
 
@@ -125,6 +192,18 @@ export default async function Aviso({ params }) {
             <section className="panel" style={{ display: "grid", gap: 12 }}>
               <h2>Seguimiento</h2>
               <label className="campo"><span>Estado</span><SelectorEstado id={p.id} estado={seg.estado} /></label>
+              <form action={guardarCierre.bind(null, p.id)} className="campo">
+                <span>Precio de cierre (si se vendió o lo compraste)</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input type="number" name="cierre" min="0" step="500" defaultValue={seg.precio_cierre ?? ""} placeholder={`Publicado ${precio(p.precio, p.moneda)}`} />
+                  <button className="btn btn-chico">Guardar</button>
+                </div>
+                {seg.precio_cierre ? (
+                  <small className="muted">
+                    Cerró {((1 - Number(seg.precio_cierre) / Number(p.precio)) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })} % debajo de lo publicado. Este dato alimenta el descuento de negociación de la zona.
+                  </small>
+                ) : <small className="muted">Cargalo cuando sepas el precio real: así la app aprende cuánto se negocia en cada zona.</small>}
+              </form>
               <form action={guardarObjetivo.bind(null, p.id)} className="campo">
                 <span>Precio objetivo (te avisamos si llega)</span>
                 <div style={{ display: "flex", gap: 8 }}>

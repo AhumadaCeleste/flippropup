@@ -183,3 +183,13 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .calculadora input { width: 100%; }
 .calculadora .resultado { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 15px; }
 .calculadora .resultado strong { font-variant-numeric: tabular-nums; text-align: right; }
+
+.chip-repetido { justify-self: start; width: fit-content; background: rgba(251, 113, 133, .14); color: #FDA4AF; border-color: transparent; text-decoration: none; }
+.chip-repetido:hover { color: var(--text); }
+.tabla-repetidos { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tabla-repetidos th { text-align: left; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.tabla-repetidos td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.tabla-repetidos td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tabla-repetidos tr.este td { background: var(--base-deepest); }
+.tabla-repetidos tr.mejor td.num:first-of-type { color: var(--accent); }
+.tabla-repetidos .acciones { display: flex; gap: 6px; flex-wrap: wrap; }

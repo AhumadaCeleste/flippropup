@@ -51,6 +51,16 @@ export async function guardarObjetivo(id, formData) {
   refrescar();
 }
 
+export async function guardarCierre(id, formData) {
+  const { supabase } = await conUsuario();
+  const n = Number(String(formData.get("cierre") || "").replace(/\./g, ""));
+  await supabase.from("seguimientos").update({
+    precio_cierre: n > 0 ? n : null,
+    fecha_cierre: n > 0 ? new Date().toISOString().slice(0, 10) : null,
+  }).eq("publicacion_id", id);
+  refrescar();
+}
+
 export async function agregarNota(id, formData) {
   const { supabase, email } = await conUsuario();
   const texto = String(formData.get("texto") || "").trim();

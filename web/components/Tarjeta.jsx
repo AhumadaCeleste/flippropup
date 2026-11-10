@@ -36,6 +36,12 @@ export default function Tarjeta({ p, seguido }) {
         ) : p.ref_m2 && p.precio_m2 ? (
           <BarraValor chica precioM2={p.precio_m2} referencia={p.ref_m2} titulo="del m² de la zona" />
         ) : null}
+        {p.grupo_n > 1 && (
+          <a href={`/aviso/${p.id}#repetidos`} className="chip chip-repetido" title="La misma propiedad está publicada por varios anunciantes o portales: compará y negociá">
+            Publicada {p.grupo_n} veces
+            {Number(p.grupo_max) > Number(p.grupo_min) ? ` · ${precio(Number(p.grupo_max) - Number(p.grupo_min), p.moneda)} de diferencia` : ""}
+          </a>
+        )}
         <div className="datos">
           {p.vendedor_tipo === "Particular" ? <span className="chip chip-acento">Dueño directo</span> : p.vendedor_tipo}
           {dias !== null ? ` · publicado hace ${dias} ${dias === 1 ? "día" : "días"}` : ""}

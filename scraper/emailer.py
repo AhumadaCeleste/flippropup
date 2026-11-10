@@ -36,6 +36,12 @@ def _tarjeta(p, sitio, extra=""):
         p.get("vendedor_tipo"),
     ] if x)
     lugar = ", ".join(x for x in [p.get("barrio"), p.get("ciudad")] if x)
+    repetido = ""
+    if (p.get("grupo_n") or 0) > 1:
+        dif = float(p.get("grupo_max") or 0) - float(p.get("grupo_min") or 0)
+        repetido = (f'<div style="font-size:13px;color:{ACENTO};margin-bottom:6px">Publicada {p["grupo_n"]} veces'
+                    + (f' · hasta {precio_txt(dif, p.get("moneda"))} de diferencia entre avisos' if dif > 0 else "")
+                    + ' · mirá todas en la ficha</div>')
     return f"""
 <tr><td style="padding:10px 0;border-bottom:1px solid #475569">
  <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
@@ -45,6 +51,7 @@ def _tarjeta(p, sitio, extra=""):
    <div style="font-size:15px;margin:4px 0">{escape(p.get('titulo') or '')}</div>
    <div style="font-size:13px;color:{MUTED}">{escape(lugar)}</div>
    <div style="font-size:13px;color:{MUTED};margin-bottom:8px">{escape(datos)}</div>
+   {repetido}
    <a href="{escape(p.get('url') or '#')}" style="background:{ACENTO};color:#0F172A;text-decoration:none;font-weight:bold;font-size:13px;padding:7px 12px;border-radius:6px">Ver en el portal</a>
    <a href="{escape(sitio)}/aviso/{p['id']}" style="color:{ACENTO};font-size:13px;margin-left:12px">Ver ficha</a>
   </td></tr></table>
@@ -65,7 +72,7 @@ def armar_html(grupos, sitio, fecha_txt):
         return [_tarjeta(p, sitio, extra) for p, extra in grupos.get(clave, [])[:limite]]
 
     cuerpo = (
-        _bloque("Mejores oportunidades nuevas", filas("oportunidad"))
+        _bloque("Oportunidades (puntaje alto o debajo de tu umbral)", filas("oportunidad"))
         + _bloque("Cerca de lugares que relevaste", filas("cerca_relevamiento"))
         + _bloque("Llegaron a tu precio objetivo", filas("precio_objetivo"))
         + _bloque("Bajaron de precio", filas("baja_precio"))

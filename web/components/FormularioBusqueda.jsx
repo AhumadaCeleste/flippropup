@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { TIPOS, DORMITORIOS, PALABRAS_SUGERIDAS, PORTALES, ZONAS, ANTIGUEDADES, CORDOBA_CAPITAL, CORDOBA_PROVINCIA as CORDOBA } from "@/lib/filtros";
+import { TIPOS, DORMITORIOS, PALABRAS_SUGERIDAS, PORTALES, ZONAS, ANTIGUEDADES, DESCUENTOS, REPETIDOS, CORDOBA_CAPITAL, CORDOBA_PROVINCIA as CORDOBA } from "@/lib/filtros";
 import { guardarBusqueda } from "@/app/acciones";
 
 function Opcion({ name, value, checked, children }) {
@@ -186,6 +186,20 @@ export default function FormularioBusqueda({ ubicaciones, filtros, oficiales = [
           <select name="publicado" defaultValue={filtros.antiguedad || ""}>
             <option value="">Cualquiera</option>
             {ANTIGUEDADES.map((a) => <option key={a.valor} value={a.valor}>{a.etiqueta}</option>)}
+          </select>
+        </label>
+        <label className="campo">
+          <span>Precio por m² frente a la zona</span>
+          <select name="descuento" defaultValue={filtros.descuento_min || ""}>
+            <option value="">Cualquiera</option>
+            {DESCUENTOS.map((d) => <option key={d} value={d}>{d} % o más por debajo</option>)}
+          </select>
+          <small className="muted">Si guardás la búsqueda, te avisamos por email cada vez que aparezca uno así.</small>
+        </label>
+        <label className="campo">
+          <span>Avisos repetidos</span>
+          <select name="repetidos" defaultValue={filtros.repetidos}>
+            {REPETIDOS.map((r) => <option key={r.valor} value={r.valor}>{r.etiqueta}</option>)}
           </select>
         </label>
         <div className="campo">
