@@ -61,3 +61,29 @@ $$;
 revoke all on function recalcular_referencias() from public, anon, authenticated;
 
 select recalcular_referencias();
+
+-- Barrio tal como lo anuncia el portal (además del barrio por ubicación). El filtro de barrios usa los dos.
+alter table publicaciones add column if not exists barrio_anuncio_id integer;
+create index if not exists publicaciones_barrio_anuncio_idx on publicaciones (barrio_anuncio_id);
+
+create or replace function actualizar_publicaciones(filas jsonb) returns integer
+language plpgsql security definer set search_path = public as $$
+declare n integer;
+begin
+  update publicaciones p set
+    barrio_id         = case when x ? 'barrio_id' then (x->>'barrio_id')::integer else p.barrio_id end,
+    barrio_anuncio_id = case when x ? 'barrio_anuncio_id' then (x->>'barrio_anuncio_id')::integer else p.barrio_anuncio_id end,
+    barrio_origen     = case when x ? 'barrio_origen' then x->>'barrio_origen' else p.barrio_origen end,
+    zona              = case when x ? 'zona' then x->>'zona' else p.zona end,
+    idecor_m2         = case when x ? 'idecor_m2' then (x->>'idecor_m2')::numeric else p.idecor_m2 end,
+    idecor_n          = case when x ? 'idecor_n' then (x->>'idecor_n')::integer else p.idecor_n end,
+    idecor_base       = case when x ? 'idecor_base' then x->>'idecor_base' else p.idecor_base end,
+    idecor_parcela    = case when x ? 'idecor_parcela' then x->>'idecor_parcela' else p.idecor_parcela end,
+    idecor_en         = case when x ? 'idecor_m2' or x ? 'idecor_en' then now() else p.idecor_en end
+  from jsonb_array_elements(filas) x
+  where p.id = (x->>'id')::bigint;
+  get diagnostics n = row_count;
+  return n;
+end;
+$$;
+revoke all on function actualizar_publicaciones(jsonb) from public, anon, authenticated;

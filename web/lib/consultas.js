@@ -25,7 +25,8 @@ function consultaPortal(supabase, f, ubicaciones, portal, descartados) {
     .eq("portal", portal);
 
   if (f.tipos?.length) q = q.in("tipo", f.tipos);
-  if (f.barrios_id?.length) q = q.in("barrio_id", f.barrios_id);
+  // Barrio oficial por ubicación o barrio tal como lo anuncia el portal (La Voz llama "Centro" a parte de Alberdi).
+  if (f.barrios_id?.length) q = q.or(`barrio_id.in.(${f.barrios_id.join(",")}),barrio_anuncio_id.in.(${f.barrios_id.join(",")})`);
   else if (f.barrios_tid?.length) q = q.in("barrio", f.barrios_tid.map(nombre).filter(Boolean));
   else if (f.ciudad_tid === CORDOBA_CAPITAL) q = q.or("barrio_id.not.is.null,ciudad.ilike.c_rdoba*,ciudad.ilike.capital");
   else if (f.ciudad_tid && nombre(f.ciudad_tid)) q = q.ilike("ciudad", nombre(f.ciudad_tid));

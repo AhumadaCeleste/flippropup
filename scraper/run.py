@@ -37,6 +37,8 @@ from lavoz import LaVoz, construir_consultas, normalizar
 ART = timezone(timedelta(hours=-3))
 MAX_PAGINAS = int(os.environ.get("MAX_PAGINAS", "10"))
 MAX_PAGINAS_BASE = int(os.environ.get("MAX_PAGINAS_BASE", "30"))  # la búsqueda base recorre más páginas
+# La Voz responde rápido (JSON): la búsqueda base la recorre completa todos los días (~14.000 avisos en la capital).
+MAX_PAGINAS_LAVOZ_BASE = int(os.environ.get("MAX_PAGINAS_LAVOZ_BASE", "400"))
 ENRIQUECER_MAX = int(os.environ.get("ENRIQUECER_MAX", "120"))  # fichas a leer por corrida (ubicación y teléfono)
 PORTALES_CON_FICHA = ["cordobaprop", "inmobiliarias", "mercadolibre", "inmoup"]
 
@@ -138,6 +140,11 @@ class Robot:
         self.errores = []
         self.tiene_contacto = self._columnas_contacto()
         self.tiene_indices = self._columnas_indices()
+        try:
+            self.sb.table("publicaciones").select("barrio_anuncio_id").limit(1).execute()
+            self.tiene_anuncio = True
+        except Exception:
+            self.tiene_anuncio = False
         self.barrios = Barrios()
         self._nombres = None
         self.seguidos = {s["publicacion_id"] for s in self.sb.table("seguimientos").select("publicacion_id").execute().data}
@@ -156,6 +163,9 @@ class Robot:
         """Barrio oficial y zona (ciudad de Córdoba)."""
         b, origen = self.barrios.asignar(p)
         p["barrio_id"], p["barrio_origen"], p["zona"] = (b["id"], origen, b["zona"]) if b else (None, None, None)
+        # El barrio tal como lo anuncia el portal (La Voz llama "Centro" a cuadras que el catastro pone en Alberdi).
+        anunciado = self.barrios.por_texto_barrio(p.get("barrio")) if p.get("barrio") else None
+        p["barrio_anuncio_id"] = anunciado["id"] if anunciado else None
         if b and not p.get("barrio"):
             p["barrio"] = bonito(b["nombre"])
         return p
@@ -212,6 +222,8 @@ class Robot:
         if not self.tiene_indices or p.get("barrio_id") is None:
             for k in ("barrio_id", "barrio_origen", "zona"):
                 p.pop(k, None)
+        if not self.tiene_anuncio or p.get("barrio_anuncio_id") is None:
+            p.pop("barrio_anuncio_id", None)
         actual = (self.sb.table("publicaciones").select("id,precio,moneda,estado")
                   .eq("portal", p["portal"]).eq("portal_id", p["portal_id"]).execute().data)
         if not actual:
@@ -225,7 +237,7 @@ class Robot:
         cambios = {k: p[k] for k in CAMPOS_ACTUALIZABLES}
         if p.get("telefono"):
             cambios["telefono"] = p["telefono"]
-        for k in ("barrio_id", "barrio_origen", "zona"):
+        for k in ("barrio_id", "barrio_origen", "zona", "barrio_anuncio_id"):
             if p.get(k) is not None:
                 cambios[k] = p[k]
         if self.tiene_indices and p.get("fecha_publicacion"):
@@ -261,9 +273,10 @@ class Robot:
         pub_id, es_nuevo = self.guardar(p)
         self.vistos.add(pub_id)
         self.resumen["avisos"] += 1
-        self.sb.table("busqueda_resultados").upsert(
-            {"busqueda_id": b["id"], "publicacion_id": pub_id},
-            on_conflict="busqueda_id,publicacion_id", ignore_duplicates=True).execute()
+        if not (b.get("filtros") or {}).get("base"):  # la base no necesita la lista de resultados
+            self.sb.table("busqueda_resultados").upsert(
+                {"busqueda_id": b["id"], "publicacion_id": pub_id},
+                on_conflict="busqueda_id,publicacion_id", ignore_duplicates=True).execute()
         if es_nuevo:
             self.resumen["nuevos"] += 1
             if not primera_vez and not b.get("sin_alertas"):  # la primera vez no avisamos todo como "nuevo"
@@ -301,7 +314,7 @@ class Robot:
     def buscar_lavoz(self, lv, b, primera_vez):
         f = b["filtros"] or {}
         for tipo, consulta in construir_consultas(self.tids_lavoz(f)):
-            crudos = lv.buscar(consulta, self.paginas(b))
+            crudos = lv.buscar(consulta, MAX_PAGINAS_LAVOZ_BASE if (b.get("filtros") or {}).get("base") else self.paginas(b))
             print(f"  [{b['nombre']}] La Voz · {tipo}: {len(crudos)} avisos · {consulta}")
             for a in crudos:
                 p = normalizar(a, tipo)
@@ -567,6 +580,15 @@ class Robot:
                 filas.append({"id": p["id"], "barrio_id": b["id"], "barrio_origen": origen, "zona": b["zona"]})
         self._actualizar(filas)
         print(f"Barrios oficiales: {len(filas)} de {len(pendientes)} avisos sin barrio quedaron ubicados")
+        if self.tiene_anuncio:
+            sin = self._todas("id,barrio", lambda q: q.is_("barrio_anuncio_id", "null").not_.is_("barrio", "null"))
+            filas = []
+            for p in sin:
+                b = self.barrios.por_texto_barrio(p["barrio"])
+                if b:
+                    filas.append({"id": p["id"], "barrio_anuncio_id": b["id"]})
+            self._actualizar(filas)
+            print(f"Barrio anunciado: {len(filas)} de {len(sin)} avisos reconocidos")
 
     def calcular_idecor(self):
         """Índice IDECOR para casas (ofertas OMI cercanas) y terrenos (valor de la tierra de la parcela)."""
