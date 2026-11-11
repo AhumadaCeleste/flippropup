@@ -433,7 +433,7 @@ class Robot:
                 print(f"  No pude revisar {p['url']}: {e}")
                 continue
             if not estado["activo"]:
-                self.sb.table("publicaciones").update({"estado": "dado_de_baja"}).eq("id", p["id"]).execute()
+                self.sb.table("publicaciones").update({"estado": "dado_de_baja", "fecha_baja": ahora()}).eq("id", p["id"]).execute()
                 self.alerta(p["id"], "dado_de_baja", p["precio"], None)
             else:
                 if self.cambio_precio(p, estado.get("precio"), estado.get("moneda")):
@@ -702,6 +702,22 @@ class Robot:
                     nuevas += 1
         print(f"Umbral de descuento: {nuevas} avisos nuevos por debajo del umbral de alguna búsqueda")
 
+    def foto_mercado(self):
+        """Señales por aviso (bajas, estado de obra), salidas del mercado y foto diaria por barrio."""
+        try:
+            self.sb.rpc("calcular_senales", {}).execute()
+        except Exception as e:
+            print(f"Mercado: falta la migración 2026-11-11-mercado.sql ({str(e)[:80]})")
+            return
+        # Solo La Voz y las webs de inmobiliarias se recorren completas: si un aviso no aparece en 3 días, salió.
+        completos = [x for x in ("lavoz", "inmobiliarias")
+                     if not any(e.startswith(f"{x} · Base") or e.startswith(f"{x}:") for e in self.errores)]
+        if completos and os.environ.get("SOLO_CALCULOS") != "1" and not os.environ.get("BUSQUEDA_ID"):
+            n = self.sb.rpc("marcar_salidas", {"portales": completos, "dias": 3}).execute().data
+            print(f"Mercado: {n} avisos dejaron de publicarse ({', '.join(completos)})")
+        n = self.sb.rpc("registrar_mercado", {}).execute().data
+        print(f"Mercado: foto del día guardada ({n} filas por barrio y tipo)")
+
     def recalcular(self):
         if self.tiene_indices:
             n = self.sb.rpc("recalcular_referencias", {}).execute().data
@@ -711,7 +727,7 @@ class Robot:
         """Recalcula barrios, repetidos, IDECOR, referencias y umbrales sin volver a recorrer los portales."""
         for paso, funcion in (("barrios", self.completar_barrios), ("repetidos", self.marcar_repetidos),
                               ("idecor", self.calcular_idecor), ("referencias", self.recalcular),
-                              ("umbral", self.alertar_umbral)):
+                              ("umbral", self.alertar_umbral), ("mercado", self.foto_mercado)):
             funcion()
 
     def correr(self):
@@ -782,7 +798,7 @@ class Robot:
                 navegador.close()
             for paso, funcion in (("barrios", self.completar_barrios), ("repetidos", self.marcar_repetidos),
                                   ("idecor", self.calcular_idecor), ("referencias", self.recalcular),
-                                  ("umbral", self.alertar_umbral)):
+                                  ("umbral", self.alertar_umbral), ("mercado", self.foto_mercado)):
                 try:
                     funcion()
                 except Exception as e:
