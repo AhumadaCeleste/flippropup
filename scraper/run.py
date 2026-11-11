@@ -728,7 +728,11 @@ class Robot:
         for paso, funcion in (("barrios", self.completar_barrios), ("repetidos", self.marcar_repetidos),
                               ("idecor", self.calcular_idecor), ("referencias", self.recalcular),
                               ("umbral", self.alertar_umbral), ("mercado", self.foto_mercado)):
-            funcion()
+            try:
+                funcion()
+            except Exception as e:
+                print(f"Paso {paso} falló: {str(e)[:160]}")
+                self.errores.append(f"{paso}: {str(e)[:120]}")
 
     def correr(self):
         ej = self.sb.table("ejecuciones").insert({"estado": "corriendo"}).execute().data[0]["id"]
