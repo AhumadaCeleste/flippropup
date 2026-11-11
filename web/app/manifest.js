@@ -14,9 +14,9 @@ export default function manifest() {
     theme_color: "#1E293B",
     lang: "es-AR",
     icons: [
-      { src: "/iconos/icono-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/iconos/icono-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      { src: "/iconos/icono-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: "/iconos/icono-192-v2.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/iconos/icono-512-v2.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/iconos/icono-maskable-512-v2.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
     shortcuts: [
       { name: "Buscar", url: "/buscar" },
