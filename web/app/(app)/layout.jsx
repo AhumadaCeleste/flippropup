@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { supabaseServidor } from "@/lib/supabase/server";
 import { salir } from "@/app/acciones";
 import Navegacion from "@/components/Navegacion";
+import BotonInstalar from "@/components/BotonInstalar";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ export default async function LayoutApp({ children }) {
         </Link>
         <Navegacion />
         <div className="usuario">
+          <BotonInstalar />
           <span>{user.email}</span>
           <form action={salir}><button className="btn btn-chico">Salir</button></form>
         </div>

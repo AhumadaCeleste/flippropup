@@ -1,4 +1,5 @@
 import BotonGoogle from "./BotonGoogle";
+import BotonInstalar from "@/components/BotonInstalar";
 
 export const metadata = { title: "Entrar · Flip PropUp" };
 
@@ -16,6 +17,7 @@ export default async function Login({ searchParams }) {
           </p>
         )}
         <p className="muted" style={{ fontSize: 13 }}>Acceso solo para usuarios habilitados.</p>
+        <BotonInstalar className="btn" />
       </div>
     </main>
   );

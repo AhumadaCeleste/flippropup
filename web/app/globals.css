@@ -238,3 +238,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .resultado-bueno strong { color: var(--accent); }
 .resultado-malo { border: 1px solid var(--danger); }
 .resultado-malo strong { color: var(--danger); }
+
+/* ---------- Instalar app ---------- */
+.instalar { display: inline-flex; flex-direction: column; align-items: center; gap: 6px; }
+.instalar-ayuda { font-size: .82rem; color: var(--text-muted); max-width: 280px; text-align: center; line-height: 1.4; }
