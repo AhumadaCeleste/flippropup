@@ -103,7 +103,7 @@ export default async function Mercado({ searchParams }) {
     base(supabase.from("publicaciones").select(campos)).or(`bajas_n.gte.2,and(bajas_n.gte.1,publicado_desde.lte.${hace90})`)
       .order("baja_total_pct", { ascending: false }).limit(8),
     base(supabase.from("publicaciones").select(campos)).lte("desvio_ref", -0.2).order("desvio_ref", { ascending: true }).limit(8),
-    base(supabase.from("publicaciones").select(campos)).eq("vendedor_tipo", "Particular").lte("publicado_desde", hace90)
+    base(supabase.from("publicaciones").select(campos)).eq("vendedor_tipo", "Particular")
       .or("bajas_n.is.null,bajas_n.eq.0").order("publicado_desde", { ascending: true }).limit(8),
     supabase.rpc("ranking_anunciantes", { p_tipo: tipo, p_zona: zona }),
   ]);
@@ -346,12 +346,12 @@ export default async function Mercado({ searchParams }) {
       <section className="panel" style={{ display: "grid", gap: 12 }}>
         <h2 style={{ margin: 0 }}>Dueños directos para captar</h2>
         <Explicacion>
-          particulares que publican hace más de 3 meses y todavía no bajaron el precio. Suelen estar cansados de vender solos:
-          son candidatos para ofrecerles el servicio de una inmobiliaria o para hacerles una oferta directa.
+          particulares que venden sin inmobiliaria y no bajaron el precio, empezando por los que llevan más tiempo publicados.
+          Cuanto más tiempo pasa, más cansados suelen estar de vender solos: son candidatos para ofrecerles el servicio de la inmobiliaria o una oferta directa.
         </Explicacion>
         {captacion?.length ? (
           <ul className="lista-oportunidades lista-horizontal">
-            {captacion.map((p) => <Item key={p.id} p={p} senal={<span>Dueño directo · {diasDesde(p.publicado_desde)} días sin bajar</span>} />)}
+            {captacion.map((p) => <Item key={p.id} p={p} senal={<span>Dueño directo · publicado hace {diasDesde(p.publicado_desde || p.primera_vez) ?? "—"} días, sin bajas</span>} />)}
           </ul>
         ) : <p className="muted">Ninguno por ahora: aparecen a medida que el historial de los avisos crece.</p>}
       </section>
