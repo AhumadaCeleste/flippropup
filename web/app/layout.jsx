@@ -1,5 +1,6 @@
 import "./globals.css";
 import localFont from "next/font/local";
+import RegistrarApp from "@/components/RegistrarApp";
 
 // Plus Jakarta Sans (SIL Open Font License), incluida en el proyecto.
 const jakarta = localFont({
@@ -15,12 +16,18 @@ const jakarta = localFont({
 export const metadata = {
   title: "Flip PropUp",
   description: "Detectá propiedades subvaluadas antes que el mercado.",
+  appleWebApp: { capable: true, title: "Flip PropUp", statusBarStyle: "black-translucent" },
 };
+
+export const viewport = { themeColor: "#1E293B" };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="es-AR" className={jakarta.variable}>
-      <body>{children}</body>
+      <body>
+        {children}
+        <RegistrarApp />
+      </body>
     </html>
   );
 }
