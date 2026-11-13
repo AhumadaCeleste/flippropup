@@ -2,13 +2,13 @@
 import os, collections
 from supabase import create_client
 sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
-filas, desde = [], 0
+filas, ultimo = [], 0
 while True:
-    r = (sb.table("publicaciones").select("portal,tipo,zp_m2,zp_nivel,precio_m2,moneda").eq("estado", "activo")
-         .range(desde, desde + 999).execute().data)
+    r = (sb.table("publicaciones").select("id,portal,tipo,zp_m2,zp_nivel,precio_m2,moneda").eq("estado", "activo")
+         .gt("id", ultimo).order("id").limit(1000).execute().data)
     filas += r
     if len(r) < 1000: break
-    desde += 1000
+    ultimo = r[-1]["id"]
 c = collections.Counter((f["portal"], f["tipo"], f["zp_nivel"] or "-") for f in filas)
 for k, v in sorted(c.items()): print("==", k, v)
 usd = [f for f in filas if f["moneda"] == "USD" and f["precio_m2"]]
