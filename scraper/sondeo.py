@@ -1,54 +1,41 @@
-"""Sondeo: La Voz vs la base para 'casa / depto, 4 dormitorios o más, barrio Centro'."""
-import os
-from urllib.parse import quote
+"""Sondeo: ¿Zonaprop responde desde GitHub Actions (sin cuenta)?
+
+Prueba 1: abrir la home con Chromium y pedir la API de listados (rplis-api/postings)
+desde la propia página. Prueba 2: lo mismo con Chromium "headed" vía xvfb no está
+disponible acá, así que se prueba también con otro user agent.
+"""
+import json
 from playwright.sync_api import sync_playwright
-from supabase import create_client
-import lavoz as lv
 import mercadolibre as ml
-from barrios import Barrios
 
-sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+CORDOBA = "1001982"
+PEDIR = """async ([tipo, pagina, ciudad]) => {
+  const r = await fetch('/rplis-api/postings', {method: 'POST', credentials: 'include',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({tipoDePropiedad: tipo, tipoDeOperacion: '1', pagina, city: ciudad})});
+  const t = await r.text();
+  let j = null; try { j = JSON.parse(t); } catch (e) {}
+  return {status: r.status, len: t.length, head: j ? null : t.slice(0, 300),
+          total: j && j.paging && j.paging.total, n: j && (j.listPostings || []).length,
+          primero: j && j.listPostings && j.listPostings[0] && j.listPostings[0].postingId};
+}"""
+
 with sync_playwright() as pw:
-    nav = pw.chromium.launch(headless=True)
+    nav = pw.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
     pg = ml.nuevo_contexto(nav).new_page()
-    v = lv.LaVoz(pg); v.abrir()
-    ubic = v.ubicaciones()
-    centro = [u for u in ubic if u["tipo"] == "barrio" and u["padre_tid"] == 3194 and u["nombre"].lower() in ("centro",)]
-    print("== tid Centro:", centro)
-    for tipo in ("casa", "departamento"):
-        for dorm in (None, "4-dormitorios-o-mas"):
-            f = {"tipos": [tipo], "provincia_tid": 3173, "ciudad_tid": 3194, "barrios_tid": [c["tid"] for c in centro]}
-            if dorm: f["dormitorios"] = [dorm]
-            for t, consulta in lv.construir_consultas(f):
-                data = v._get_json(f"/api/search?page=1&filters={quote(consulta)}")
-                res = data.get("data", {}).get("results", {})
-                meta = res.get("meta") or {}
-                print(f"== La Voz {tipo} {dorm or 'todos'} Centro: total={meta.get("total")} paginas={meta.get('last_page')} · {consulta}")
-                for a in res.get("data", [])[:4]:
-                    p = lv.normalizar(a, tipo)
-                    if p:
-                        b, o = Barrios().asignar(p)
-                        print("     ", p["portal_id"], p.get("barrio"), p.get("dormitorios"), p.get("lat"), p.get("lng"), "->", b and b["nombre"], o)
-    # totales ciudad
-    for tipo in ("casa", "departamento", "terreno"):
-        f = {"tipos": [tipo], "provincia_tid": 3173, "ciudad_tid": 3194}
-        for t, consulta in lv.construir_consultas(f):
-            meta = (v._get_json(f"/api/search?page=1&filters={quote(consulta)}").get("data", {}).get("results", {}).get("meta") or {})
-            print(f"== La Voz total ciudad {tipo}: {meta.get('total')} ({meta.get('last_page')} páginas)")
+    resp = pg.goto("https://www.zonaprop.com.ar/departamentos-venta-cordoba-cb.html", wait_until="domcontentloaded", timeout=60000)
+    pg.wait_for_timeout(6000)
+    print("== home:", resp and resp.status, pg.title()[:120])
+    for intento in range(3):
+        try:
+            for tipo in ("2", "1"):
+                print("== API tipo", tipo, json.dumps(pg.evaluate(PEDIR, [tipo, 2, CORDOBA])))
+            break
+        except Exception as e:
+            print("== error", intento, e)
+            pg.wait_for_timeout(8000)
+    # terrenos: probar ids posibles
+    for tipo in ("1003", "3", "5", "6", "7", "8"):
+        r = pg.evaluate(PEDIR, [tipo, 1, CORDOBA])
+        print("== tipo", tipo, r.get("status"), r.get("total"))
     nav.close()
-
-# base
-for tipo in ("casa", "departamento"):
-    for dorm in (None, "4 Dormitorios o más"):
-        q = sb.table("publicaciones").select("id,portal,barrio,barrio_id,barrio_origen", count="exact").eq("estado", "activo").eq("tipo", tipo).eq("portal", "lavoz").ilike("barrio", "centro")
-        if dorm: q = q.eq("dormitorios", dorm)
-        r = q.execute()
-        print(f"== Base La Voz {tipo} {dorm or 'todos'} barrio texto 'Centro': {r.count} · barrio oficial: {[ (x['barrio_id'], x['barrio_origen']) for x in r.data[:8]]}")
-cen = sb.table("barrios").select("id").eq("nombre", "CENTRO").execute().data
-print("== id oficial CENTRO:", cen)
-for tipo in ("casa", "departamento"):
-    r = sb.table("publicaciones").select("portal", count="exact").eq("estado", "activo").eq("tipo", tipo).eq("barrio_id", cen[0]["id"]).eq("dormitorios", "4 Dormitorios o más").execute()
-    print(f"== Base todos los portales {tipo} 4+ barrio oficial CENTRO: {r.count} · {sorted(x['portal'] for x in r.data)}")
-r = sb.table("publicaciones").select("dormitorios", count="exact").eq("estado", "activo").eq("portal", "lavoz").eq("tipo", "casa").limit(2000).execute()
-import collections
-print("== dormitorios casas La Voz:", collections.Counter(x["dormitorios"] for x in r.data).most_common(8))
