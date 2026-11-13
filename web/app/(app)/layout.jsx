@@ -9,9 +9,9 @@ export const dynamic = "force-dynamic";
 
 export default async function LayoutApp({ children }) {
   const supabase = await supabaseServidor();
-  const { data: { user } } = await supabase.auth.getUser();
+  const [{ data }, { data: habilitado }] = await Promise.all([supabase.auth.getClaims(), supabase.rpc("es_habilitado")]);
+  const user = data?.claims;
   if (!user) redirect("/login");
-  const { data: habilitado } = await supabase.rpc("es_habilitado");
 
   return (
     <>
