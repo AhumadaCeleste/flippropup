@@ -134,6 +134,10 @@ def portales_de(f, b=None):
     return elegidos
 
 
+class _Salteado(Exception):
+    pass
+
+
 class Robot:
     def __init__(self):
         self.sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
@@ -408,11 +412,14 @@ class Robot:
             p = zonaprop.normalizar(x)
             if zonaprop.coincide(p, f, nombres, ml.TEXTO_DORMITORIOS) and self.pasa(p, f):
                 elegidos.append(p)
+        # La primera vez que entra Zonaprop todo es "nuevo": no se avisa (serían miles de alertas).
+        if getattr(self, "zp_primera", None) is None:
+            self.zp_primera = not self.sb.table("publicaciones").select("id").eq("portal", "zonaprop").limit(1).execute().data
         if f.get("base"):
             self.guardar_lote(elegidos)
         else:
             for p in elegidos:
-                self.registrar(b, p, p["tipo"], primera_vez)
+                self.registrar(b, p, p["tipo"], primera_vez or self.zp_primera)
         print(f"  [{b['nombre']}] Zonaprop · {len(elegidos)} de {len(zp)} avisos pasan los filtros")
 
     def guardar_lote(self, avisos):
@@ -505,7 +512,8 @@ class Robot:
                     .execute().data)
         for s in seguidos:
             p = s["publicaciones"]
-            if not p or p["id"] in self.vistos or p["estado"] != "activo" or portales.get(p["portal"]) is None:
+            if (not p or p["id"] in self.vistos or p["estado"] != "activo"
+                    or not hasattr(portales.get(p["portal"]), "estado_aviso")):
                 continue
             try:
                 estado = portales[p["portal"]].estado_aviso(p["url"])
@@ -790,8 +798,8 @@ class Robot:
             print(f"Mercado: falta la migración 2026-11-11-mercado.sql ({str(e)[:80]})")
             return
         # Solo La Voz y las webs de inmobiliarias se recorren completas: si un aviso no aparece en 3 días, salió.
-        completos = [x for x in ("lavoz", "inmobiliarias")
-                     if not any(e.startswith(f"{x} · Base") or e.startswith(f"{x}:") for e in self.errores)]
+        completos = [x for x in ("lavoz", "inmobiliarias") if os.environ.get("SOLO_ZONAPROP") != "1"
+                     and not any(e.startswith(f"{x} · Base") or e.startswith(f"{x}:") for e in self.errores)]
         # Zonaprop: solo si la captura de la compu llegó completa y es de las últimas 36 horas.
         if getattr(self, "zp_completo", False) and zonaprop.reciente(getattr(self, "zp_lote", None)):
             completos.append("zonaprop")
@@ -830,15 +838,24 @@ class Robot:
                 navegador = pw.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
                 contexto = navegador.new_context(locale="es-AR", viewport={"width": 1366, "height": 900})
                 portales = {}
+                solo_zp = os.environ.get("SOLO_ZONAPROP") == "1"  # procesar solo la captura de Zonaprop
                 try:
+                    if solo_zp:
+                        raise _Salteado()
                     lv = LaVoz(contexto.new_page())
                     lv.abrir()
                     self.actualizar_ubicaciones(lv)
                     portales["lavoz"] = lv
+                except _Salteado:
+                    pass
                 except Exception as e:
                     self.errores.append(f"lavoz · al abrir: {e}")
                     traceback.print_exc()
-                if any("mercadolibre" in portales_de(b["filtros"] or {}, b) for b in busquedas):
+                if solo_zp:
+                    busquedas_portales = []
+                else:
+                    busquedas_portales = busquedas
+                if any("mercadolibre" in portales_de(b["filtros"] or {}, b) for b in busquedas_portales):
                     try:
                         mlp = ml.MercadoLibre(ml.nuevo_contexto(navegador).new_page())
                         mlp.abrir()
@@ -846,7 +863,7 @@ class Robot:
                     except Exception as e:
                         self.errores.append(f"mercadolibre · al abrir: {e}")
                         traceback.print_exc()
-                if any("inmoup" in portales_de(b["filtros"] or {}, b) for b in busquedas):
+                if any("inmoup" in portales_de(b["filtros"] or {}, b) for b in busquedas_portales):
                     try:
                         iu = inmoup.InmoUP(ml.nuevo_contexto(navegador).new_page())
                         iu.abrir()
@@ -854,7 +871,7 @@ class Robot:
                     except Exception as e:
                         self.errores.append(f"inmoup · al abrir: {e}")
                         traceback.print_exc()
-                if any("cordobaprop" in portales_de(b["filtros"] or {}, b) for b in busquedas):
+                if any("cordobaprop" in portales_de(b["filtros"] or {}, b) for b in busquedas_portales):
                     try:
                         cpp = cp.CordobaProp(ml.nuevo_contexto(navegador).new_page())
                         cpp.abrir()
@@ -862,9 +879,9 @@ class Robot:
                     except Exception as e:
                         self.errores.append(f"cordobaprop · al abrir: {e}")
                         traceback.print_exc()
-                if any("inmobiliarias" in portales_de(b["filtros"] or {}, b) for b in busquedas):
+                if any("inmobiliarias" in portales_de(b["filtros"] or {}, b) for b in busquedas_portales):
                     portales["inmobiliarias"] = inmo.Inmobiliarias(ml.nuevo_contexto(navegador).new_page())
-                if marketplace.disponible() and any("marketplace" in portales_de(b["filtros"] or {}, b) for b in busquedas):
+                if marketplace.disponible() and any("marketplace" in portales_de(b["filtros"] or {}, b) for b in busquedas_portales):
                     try:
                         if self.marketplace_hoy():
                             print("Marketplace: ya se trajo en las últimas 20 horas, no se vuelve a pedir (cuesta por aviso).")
