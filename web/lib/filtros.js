@@ -19,6 +19,7 @@ export const PORTALES = [
   { valor: "cordobaprop", etiqueta: "CórdobaProp" },
   { valor: "inmobiliarias", etiqueta: "Inmobiliarias" },
   { valor: "marketplace", etiqueta: "Marketplace" },
+  { valor: "zonaprop", etiqueta: "Zonaprop" },
 ];
 export const CORDOBA_PROVINCIA = 3173;
 export const CORDOBA_CAPITAL = 3194;

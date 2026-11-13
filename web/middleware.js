@@ -19,7 +19,9 @@ export async function middleware(request) {
       },
     }
   );
-  const { data: { user } } = await supabase.auth.getUser();
+  // getClaims valida la sesión en el mismo servidor (sin ir a Supabase en cada clic, como hacía getUser).
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims;
   const publica = PUBLICAS.some((p) => request.nextUrl.pathname.startsWith(p));
   if (!user && !publica) {
     const url = request.nextUrl.clone();

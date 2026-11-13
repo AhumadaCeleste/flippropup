@@ -20,25 +20,25 @@ export default async function Aviso({ params }) {
   const supabase = await supabaseServidor();
   const { data: p } = await supabase.from("publicaciones").select("*").eq("id", id).single();
   if (!p) notFound();
-  const [{ data: historial }, { data: seg }, { data: notas }] = await Promise.all([
+  // Todo lo que depende del aviso se pide a la vez (antes eran cuatro viajes seguidos a la base).
+  const nada = Promise.resolve({ data: null });
+  const [{ data: historial }, { data: seg }, { data: notas }, { data: barrioOficial }, { data: hermanos }, { data: cierres }] = await Promise.all([
     supabase.from("historial_precios").select("precio,moneda,fecha").eq("publicacion_id", id).order("fecha"),
     supabase.from("seguimientos").select("*").eq("publicacion_id", id).maybeSingle(),
     supabase.from("notas").select("*").eq("publicacion_id", id).order("creada", { ascending: false }),
+    p.barrio_id ? supabase.from("barrios").select("bonito,zona").eq("id", p.barrio_id).maybeSingle() : nada,
+    p.grupo_id
+      ? supabase.from("publicaciones")
+          .select("id,portal,url,titulo,precio,moneda,precio_m2,superficie_total,vendedor_tipo,vendedor_nombre,telefono,descripcion,publicado_desde,fecha_publicacion,primera_vez,estado")
+          .eq("grupo_id", p.grupo_id).order("precio", { ascending: true })
+      : Promise.resolve({ data: [] }),
+    // Lo que cerraron en operaciones propias de la misma zona: cuánto debajo de lo publicado.
+    supabase.from("seguimientos")
+      .select("precio_cierre, publicaciones!inner(precio, moneda, zona)")
+      .not("precio_cierre", "is", null).eq("publicaciones.zona", p.zona || "-"),
   ]);
   const cambio = seg ? variacion(seg.precio_inicial, p.precio) : null;
   const dias = diasDesde(p.publicado_desde || p.fecha_publicacion || p.primera_vez);
-  const { data: barrioOficial } = p.barrio_id
-    ? await supabase.from("barrios").select("bonito,zona").eq("id", p.barrio_id).maybeSingle()
-    : { data: null };
-  const { data: hermanos } = p.grupo_id
-    ? await supabase.from("publicaciones")
-        .select("id,portal,url,titulo,precio,moneda,precio_m2,superficie_total,vendedor_tipo,vendedor_nombre,telefono,descripcion,publicado_desde,fecha_publicacion,primera_vez,estado")
-        .eq("grupo_id", p.grupo_id).order("precio", { ascending: true })
-    : { data: [] };
-  // Lo que cerraron en operaciones propias de la misma zona: cuánto debajo de lo publicado.
-  const { data: cierres } = await supabase.from("seguimientos")
-    .select("precio_cierre, publicaciones!inner(precio, moneda, zona)")
-    .not("precio_cierre", "is", null).eq("publicaciones.zona", p.zona || "-");
   const descuentosCierre = (cierres || [])
     .filter((c) => c.publicaciones?.precio && c.publicaciones.moneda === p.moneda)
     .map((c) => (1 - Number(c.precio_cierre) / Number(c.publicaciones.precio)) * 100)
@@ -95,11 +95,12 @@ export default async function Aviso({ params }) {
               )}
               {p.estado === "dado_de_baja" && <span className="chip chip-peligro">Dado de baja</span>}
             </div>
-            {p.idecor_m2 && p.precio_m2 ? (
+            {p.zp_m2 && p.precio_m2 ? (
+              <BarraValor precioM2={p.precio_m2} referencia={p.zp_m2} titulo="m² de Zonaprop"
+                detalle={`Mediana del m² de ${p.zp_n} avisos de Zonaprop ${p.zp_nivel === "barrio" ? "del mismo tipo en el barrio" : p.zp_nivel === "zona" ? "del mismo tipo en la zona" : "del mismo tipo en la ciudad"}.`} />
+            ) : p.tipo === "terreno" && p.idecor_m2 && p.precio_m2 ? (
               <BarraValor precioM2={p.precio_m2} referencia={p.idecor_m2} titulo="Índice IDECOR"
                 detalle={<>{p.idecor_base}{p.idecor_parcela ? ` · parcela ${p.idecor_parcela}` : ""} · <a href={mapaIdecor} target="_blank" rel="noopener noreferrer">ver en Mapas Córdoba</a></>} />
-            ) : p.tipo === "departamento" ? (
-              <p className="muted" style={{ margin: 0, fontSize: 13 }}>IDECOR no publica valores de departamentos: se compara con el mercado.</p>
             ) : null}
             {p.ref_m2 && p.precio_m2 ? (
               <BarraValor precioM2={p.precio_m2} referencia={p.ref_m2} titulo="Mercado (avisos parecidos)"
@@ -183,7 +184,7 @@ export default async function Aviso({ params }) {
           {p.moneda === "USD" && (
             <section className="panel" style={{ display: "grid", gap: 12 }}>
               <h2>Calculadora de flip</h2>
-              <CalculadoraFlip precio={p.precio} m2={p.superficie_total} referenciaM2={p.ref_m2 || p.idecor_m2}
+              <CalculadoraFlip precio={p.precio} m2={p.superficie_total} referenciaM2={p.zp_m2 || p.ref_m2 || p.idecor_m2}
                 descuentoZona={descuentoZona} cierres={descuentosCierre.length} minimoPublicado={p.grupo_n > 1 ? Number(p.grupo_min) : null} />
             </section>
           )}

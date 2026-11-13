@@ -31,7 +31,9 @@ export default function Tarjeta({ p, seguido }) {
         <Link href={`/aviso/${p.id}`} className="titulo">{p.titulo}</Link>
         <div className="datos">{[p.barrio, p.ciudad].filter(Boolean).join(", ")}</div>
         <div className="datos">{datos}</div>
-        {p.idecor_m2 && p.precio_m2 ? (
+        {p.zp_m2 && p.precio_m2 ? (
+          <BarraValor chica precioM2={p.precio_m2} referencia={p.zp_m2} titulo={`del m² Zonaprop ${p.zp_nivel === "barrio" ? "del barrio" : p.zp_nivel === "zona" ? "de la zona" : "de la ciudad"}`} />
+        ) : p.tipo === "terreno" && p.idecor_m2 && p.precio_m2 ? (
           <BarraValor chica precioM2={p.precio_m2} referencia={p.idecor_m2} titulo="del índice IDECOR" />
         ) : p.ref_m2 && p.precio_m2 ? (
           <BarraValor chica precioM2={p.precio_m2} referencia={p.ref_m2} titulo="del m² de la zona" />

@@ -15,12 +15,18 @@ export async function ubicacionesLaVoz(supabase) {
   return data || [];
 }
 
+// Solo las columnas que usan la tarjeta y el mapa (sin descripción ni fotos: antes viajaba todo el aviso).
+const COLUMNAS = "id,portal,url,titulo,tipo,precio,moneda,precio_m2,superficie_total,dormitorios,barrio,ciudad,lat,lng," +
+  "foto_principal,puntaje,vendedor_tipo,vendedor_nombre,telefono,publicado_desde,fecha_publicacion,primera_vez," +
+  "grupo_id,grupo_n,grupo_min,grupo_max,ref_m2,idecor_m2,zp_m2,zp_nivel";
+
 // Arma la consulta de un portal con todos los filtros.
 function consultaPortal(supabase, f, ubicaciones, portal, descartados) {
   const nombre = (tid) => ubicaciones.find((u) => u.tid === Number(tid))?.nombre;
   let q = supabase
     .from("publicaciones")
-    .select("*", { count: "exact" })
+    // "estimated": cuenta exacto si son pocos y estima si son miles (contar 20.000 filas era lo más lento)
+    .select(COLUMNAS, { count: "estimated" })
     .eq("estado", "activo")
     .eq("portal", portal);
 

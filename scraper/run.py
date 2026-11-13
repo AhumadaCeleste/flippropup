@@ -32,6 +32,7 @@ from barrios import Barrios, bonito
 import cordobaprop as cp
 import inmobiliarias as inmo
 import inmoup
+import zonaprop
 import mercadolibre as ml
 from lavoz import LaVoz, construir_consultas, normalizar
 
@@ -115,7 +116,7 @@ def pasa_filtros_locales(p, f):
     return True
 
 
-PORTALES_POR_DEFECTO = ["lavoz", "mercadolibre", "inmoup", "cordobaprop", "inmobiliarias", "marketplace"]
+PORTALES_POR_DEFECTO = ["lavoz", "mercadolibre", "inmoup", "cordobaprop", "inmobiliarias", "marketplace", "zonaprop"]
 
 
 # Las búsquedas guardadas antes de sumar Mercado Libre tienen ["lavoz"] porque era
@@ -399,6 +400,84 @@ class Robot:
                 validos += 1
         print(f"  [{b['nombre']}] Inmobiliarias (webs Tokko) · {validos} de {len(crudos)} avisos pasan los filtros")
 
+    def buscar_zonaprop(self, zp, b, primera_vez):
+        f = b["filtros"] or {}
+        nombres = self.nombres_ubicaciones()
+        elegidos = []
+        for x in zp:
+            p = zonaprop.normalizar(x)
+            if zonaprop.coincide(p, f, nombres, ml.TEXTO_DORMITORIOS) and self.pasa(p, f):
+                elegidos.append(p)
+        if f.get("base"):
+            self.guardar_lote(elegidos)
+        else:
+            for p in elegidos:
+                self.registrar(b, p, p["tipo"], primera_vez)
+        print(f"  [{b['nombre']}] Zonaprop · {len(elegidos)} de {len(zp)} avisos pasan los filtros")
+
+    def guardar_lote(self, avisos):
+        """Guardado en bloque (la base trae ~20.000 avisos de Zonaprop: de a uno tardaría demasiado)."""
+        if not avisos:
+            return
+        portal = avisos[0]["portal"]
+        actuales, desde = {}, 0
+        while True:
+            r = (self.sb.table("publicaciones").select("id,portal_id,precio,moneda").eq("portal", portal)
+                 .order("id").range(desde, desde + 999).execute().data)
+            actuales.update({x["portal_id"]: x for x in r})
+            if len(r) < 1000:
+                break
+            desde += 1000
+        hoy, momento = datetime.now(ART).date().isoformat(), ahora()
+        campos = CAMPOS_ACTUALIZABLES + ["portal", "portal_id", "tipo", "precio", "moneda", "estado", "ultima_vez"]
+        if self.tiene_indices:
+            campos += ["barrio_id", "barrio_origen", "zona"]
+        if self.tiene_anuncio:
+            campos.append("barrio_anuncio_id")
+        nuevos, existentes, cambios = [], [], []
+        vistos = set()
+        for p in avisos:
+            if p["portal_id"] in vistos:
+                continue
+            vistos.add(p["portal_id"])
+            sup = p.get("superficie_total")
+            if sup and (sup < 12 or (p.get("tipo") != "terreno" and sup > 5000) or sup > 500000):
+                p["superficie_total"] = None
+            fila = {k: p.get(k) for k in campos}
+            fila.update(estado="activo", ultima_vez=momento)
+            a = actuales.get(p["portal_id"])
+            if a is None:
+                fila["primera_vez"] = momento
+                if self.tiene_indices:
+                    fila["publicado_desde"] = hoy
+                nuevos.append(fila)
+            else:
+                antes = float(a["precio"]) if a["precio"] is not None else None
+                if p["precio"] is not None and antes is not None and p["moneda"] == a["moneda"] and abs(p["precio"] - antes) >= 1:
+                    cambios.append((a["id"], antes, p["precio"], p["moneda"]))
+                elif antes is not None and p["moneda"] != a["moneda"]:
+                    fila["precio"], fila["moneda"] = a["precio"], a["moneda"]
+                existentes.append(fila)
+        for i in range(0, len(nuevos), 500):
+            ids = self.sb.table("publicaciones").insert(nuevos[i:i + 500]).execute().data
+            hist = [{"publicacion_id": x["id"], "precio": x["precio"], "moneda": x["moneda"]} for x in ids]
+            self.sb.table("historial_precios").insert(hist).execute()
+            self.vistos.update(x["id"] for x in ids)
+        for i in range(0, len(existentes), 500):
+            r = self.sb.table("publicaciones").upsert(existentes[i:i + 500], on_conflict="portal,portal_id").execute().data
+            self.vistos.update(x["id"] for x in r)
+        if cambios:
+            self.sb.table("historial_precios").insert(
+                [{"publicacion_id": i, "precio": d, "moneda": m} for i, _, d, m in cambios]).execute()
+            for pub_id, antes, despues, _ in cambios:
+                if pub_id in self.seguidos:
+                    self.alerta(pub_id, "baja_precio" if despues < antes else "suba_precio", antes, despues)
+                    self.revisar_objetivo(pub_id, despues)
+        self.resumen["avisos"] += len(vistos)
+        self.resumen["nuevos"] += len(nuevos)
+        self.resumen["cambios"] += len(cambios)
+        print(f"    {portal}: {len(nuevos)} nuevos, {len(existentes)} actualizados, {len(cambios)} cambios de precio")
+
     def procesar_busqueda(self, portales, b):
         f = b["filtros"] or {}
         primera_vez = b["ultima_ejecucion"] is None
@@ -406,7 +485,8 @@ class Robot:
         self.avisar_cambios = not b.get("sin_alertas")
         for nombre, buscador in (("lavoz", self.buscar_lavoz), ("mercadolibre", self.buscar_mercadolibre),
                                  ("inmoup", self.buscar_inmoup), ("cordobaprop", self.buscar_cordobaprop),
-                                 ("inmobiliarias", self.buscar_inmobiliarias), ("marketplace", self.buscar_marketplace)):
+                                 ("inmobiliarias", self.buscar_inmobiliarias), ("marketplace", self.buscar_marketplace),
+                                 ("zonaprop", self.buscar_zonaprop)):
             if nombre not in portales_de(f, b) or portales.get(nombre) is None:
                 continue
             try:
@@ -712,6 +792,9 @@ class Robot:
         # Solo La Voz y las webs de inmobiliarias se recorren completas: si un aviso no aparece en 3 días, salió.
         completos = [x for x in ("lavoz", "inmobiliarias")
                      if not any(e.startswith(f"{x} · Base") or e.startswith(f"{x}:") for e in self.errores)]
+        # Zonaprop: solo si la captura de la compu llegó completa y es de las últimas 36 horas.
+        if getattr(self, "zp_completo", False) and zonaprop.reciente(getattr(self, "zp_lote", None)):
+            completos.append("zonaprop")
         if completos and os.environ.get("SOLO_CALCULOS") != "1" and not os.environ.get("BUSQUEDA_ID"):
             n = self.sb.rpc("marcar_salidas", {"portales": completos, "dias": 3}).execute().data
             print(f"Mercado: {n} avisos dejaron de publicarse ({', '.join(completos)})")
@@ -790,6 +873,12 @@ class Robot:
                             print(f"Marketplace: {len(portales['marketplace'])} avisos traídos de Apify")
                     except Exception as e:
                         self.errores.append(f"marketplace: {e}")
+                        traceback.print_exc()
+                if any("zonaprop" in portales_de(b["filtros"] or {}, b) for b in busquedas):
+                    try:
+                        portales["zonaprop"], self.zp_lote, self.zp_completo = zonaprop.traer(self.sb)
+                    except Exception as e:
+                        self.errores.append(f"zonaprop: {e}")
                         traceback.print_exc()
                 for b in busquedas:
                     self.procesar_busqueda(portales, b)
