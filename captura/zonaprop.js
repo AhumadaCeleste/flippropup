@@ -10,7 +10,7 @@
   const CIUDAD = "1001982"; // Córdoba Capital
   // Zonaprop no expone terrenos en esta API para la capital: se siguen con IDECOR y los demás portales.
   const TIPOS = [["departamento", "2"], ["casa", "1"]];
-  const PAUSA = 900; // ms entre páginas, para no cargar al sitio
+  const PAUSA = 600; // ms entre páginas, para no cargar al sitio
   if (window.__zpEstado && !window.__zpEstado.fin) return "ya hay una captura corriendo · lote " + window.__zpEstado.lote;
   const lote = new Date().toISOString().slice(0, 16);
   const estado = (window.__zpEstado = { lote, inicio: new Date().toISOString(), tipos: {}, errores: [], fin: null });
@@ -64,7 +64,7 @@
   };
 
   // Dos lectores en paralelo (Zonaprop tarda ~4 s por página): la capital entera en ~30 minutos.
-  const LECTORES = 2;
+  const LECTORES = 3;
   (async () => {
     for (const [nombre, tipo] of TIPOS) {
       const e = (estado.tipos[nombre] = { paginas: null, hechas: 0, avisos: 0 });
