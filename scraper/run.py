@@ -415,17 +415,21 @@ class Robot:
         # La primera vez que entra Zonaprop todo es "nuevo": no se avisa (serían miles de alertas).
         if getattr(self, "zp_primera", None) is None:
             self.zp_primera = not self.sb.table("publicaciones").select("id").eq("portal", "zonaprop").limit(1).execute().data
-        if f.get("base"):
-            self.guardar_lote(elegidos)
-        else:
-            for p in elegidos:
-                self.registrar(b, p, p["tipo"], primera_vez or self.zp_primera)
+        ids, nuevos = self.guardar_lote(elegidos)
+        if not f.get("base") and ids:
+            filas = [{"busqueda_id": b["id"], "publicacion_id": i} for i in ids]
+            for i in range(0, len(filas), 1000):
+                self.sb.table("busqueda_resultados").upsert(filas[i:i + 1000], on_conflict="busqueda_id,publicacion_id",
+                                                           ignore_duplicates=True).execute()
+            if not (primera_vez or self.zp_primera or b.get("sin_alertas")):
+                for i in nuevos:
+                    self.alerta(i, "nuevo", None, None, b["id"])
         print(f"  [{b['nombre']}] Zonaprop · {len(elegidos)} de {len(zp)} avisos pasan los filtros")
 
     def guardar_lote(self, avisos):
         """Guardado en bloque (la base trae ~20.000 avisos de Zonaprop: de a uno tardaría demasiado)."""
         if not avisos:
-            return
+            return [], []
         portal = avisos[0]["portal"]
         actuales, desde = {}, 0
         while True:
@@ -465,14 +469,17 @@ class Robot:
                 elif antes is not None and p["moneda"] != a["moneda"]:
                     fila["precio"], fila["moneda"] = a["precio"], a["moneda"]
                 existentes.append(fila)
+        todos_ids, nuevos_ids = [], []
         for i in range(0, len(nuevos), 500):
             ids = self.sb.table("publicaciones").insert(nuevos[i:i + 500]).execute().data
             hist = [{"publicacion_id": x["id"], "precio": x["precio"], "moneda": x["moneda"]} for x in ids]
             self.sb.table("historial_precios").insert(hist).execute()
-            self.vistos.update(x["id"] for x in ids)
+            nuevos_ids += [x["id"] for x in ids]
         for i in range(0, len(existentes), 500):
             r = self.sb.table("publicaciones").upsert(existentes[i:i + 500], on_conflict="portal,portal_id").execute().data
-            self.vistos.update(x["id"] for x in r)
+            todos_ids += [x["id"] for x in r]
+        todos_ids += nuevos_ids
+        self.vistos.update(todos_ids)
         if cambios:
             self.sb.table("historial_precios").insert(
                 [{"publicacion_id": i, "precio": d, "moneda": m} for i, _, d, m in cambios]).execute()
@@ -484,6 +491,7 @@ class Robot:
         self.resumen["nuevos"] += len(nuevos)
         self.resumen["cambios"] += len(cambios)
         print(f"    {portal}: {len(nuevos)} nuevos, {len(existentes)} actualizados, {len(cambios)} cambios de precio")
+        return todos_ids, nuevos_ids
 
     def procesar_busqueda(self, portales, b):
         f = b["filtros"] or {}
